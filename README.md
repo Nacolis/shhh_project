@@ -89,5 +89,7 @@ Quand Bob reçoit un message :
 
 "git pull" pour être à jour sur les modifications du projet.
 "git add --all" pour ajouter ses modifs.
-"git commit -m "description_du_commit" "pour soumettre le projet modifié.
+"git commit -m "description du commit" "pour soumettre le projet modifié.
 "git push" pour envoyer le projet après avoir add et commit (obligatoire).
+
+## 
