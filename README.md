@@ -92,4 +92,4 @@ Quand Bob reçoit un message :
 "git commit -m "description du commit" "pour soumettre le projet modifié.
 "git push" pour envoyer le projet après avoir add et commit (obligatoire).
 
-## 
+##  
