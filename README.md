@@ -19,7 +19,7 @@ Une application pour communiquer de manière anonyme et sécurisée.
 
 - Peut être conteneurisé avec Docker ???
 
-## Protocoles et Algorithmes
+## Algorithmes
 
 | **Fonction / Objectif** | **Protocole ou Algorithme** | **Rôle dans le système** | **Commentaires / Implémentation** |
 |---------------------------|------------------------------|----------------------------|----------------------------------|
@@ -33,7 +33,58 @@ Une application pour communiquer de manière anonyme et sécurisée.
 
 
 
+# Protocole
 
+## Étape 1 — Inscription et génération des clés
+
+À l'installation ou à la première connexion, chaque client effectue :
+1. Génération d'une paire RSA :
+   - `RSA_priv` : clé privée (stockée localement, jamais envoyée)
+   - `RSA_pub` : clé publique (envoyée au serveur)
+2. Génération d'une clé Diffie–Hellman locale (secret aléatoire `a`) et calcul de la clé publique DH : `A = g^a mod p`.
+
+---
+
+## Étape 1-2 — Paramètres publics
+
+Le serveur publie les paramètres DH partagés par tous les utilisateurs :
+- `p` : grand nombre premier
+- `g` : générateur
+
+---
+
+## Étape 3 — Échange de clés Diffie–Hellman
+
+Quand Alice veut démarrer une conversation avec Bob :
+1. Alice récupère la clé DH publique de Bob depuis le serveur
+2. Alice calcule la clé partagée locale : `K = B^a mod p`.
+3. Bob calcule de son côté `K = A^b mod p`.
+4. La clé K n'est jamais transmise. On en dérive la clé AES via SHA-256 :
+
+---
+
+## Étape 4 — Échange de messages chiffrés (AES-256-GCM)
+
+Quand Alice envoie un message à Bob :
+1. Chiffrement avec AES-256-GCM ou autre en utilisant `aes_key` dérivée.
+2. Signature du ciphertext avec la clé privée RSA d'Alice.
+3. Envoi au serveur d'un message
+
+Remarques :
+- Apparemment, il faudrait signer le haché du ciphertext||nonce||tag plutôt que le ciphertext seul.
+
+---
+
+## Étape 5 — Vérification et déchiffrement côté récepteur
+
+Quand Bob reçoit un message :
+1. Récupère la clé publique RSA d'Alice depuis le serveur.
+2. Vérifie la signature RSA sur `ciphertext||nonce||tag`.
+3. Si la signature est valide, utilise `aes_key` (dérivée de la session DH) pour déchiffrer le ciphertext.
+4. Si la décryption et l'authentification GCM réussissent, afficher le texte clair.
+
+
+---
 ### Comment utiliser git pour le projet
 
 "git pull" pour être à jour sur les modifications du projet.
