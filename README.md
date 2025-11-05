@@ -89,10 +89,27 @@ Quand Bob reçoit un message :
 
 "git pull" pour être à jour sur les modifications du projet.
 "git add --all" pour ajouter ses modifs.
-"git commit -m "description_du_commit" "pour soumettre le projet modifié.
+"git commit -m "description du commit" "pour soumettre le projet modifié.
 "git push" pour envoyer le projet après avoir add et commit (obligatoire).
 
----
-### Comment utiliser le serveur
+# Fonctionnalités:
 
-"shh.univ-edt.fr"
+## Groupe
+- Minimum de 3 personnes pour créer un groupe.
+- Minimum de 1 personne dans un groupe pour éviter sa suppression.
+- Une personne rejoignant le groupe n'auras pas les messages antérieurs à son arrivée.
+- pour l'instant pas de limite d'utilisateurs dans un groupe
+
+## Contact/Amis
+- Envoie de demande d'ami par le username de la personne.
+- (Bonus) Génération de QR code pour ajouter un.e ami.e
+
+## Identification
+- Username (unique et modifiable) 
+- mot de passe
+- Identifiant (unique et non modifiable)
+
+## Message
+- Textuel 
+- Image
+- Audio (Bonus) 
