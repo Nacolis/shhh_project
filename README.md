@@ -92,7 +92,7 @@ Quand Bob reçoit un message :
 "git commit -m "description_du_commit" "pour soumettre le projet modifié.
 "git push" pour envoyer le projet après avoir add et commit (obligatoire).
 
-
+---
 ### Comment utiliser le serveur
 
-ssh root@159.65.124.188
+"shh.univ-edt.fr"
