@@ -19,7 +19,7 @@ def encrypt_data(key: bytes, plaintext: str) -> str:
     # Return the IV and ciphertext as a base64 encoded string
     return base64.b64encode(iv + ciphertext).decode('utf-8')
 # Example usage
-key = urandom(32)  # Generate a random 256-bit key
+key = urandom(32)  # Generate a random 256-bit key 
 plaintext = "Hello, World!"
 encrypted_data = encrypt_data(key, plaintext)
 print("Encrypted:", encrypted_data)
