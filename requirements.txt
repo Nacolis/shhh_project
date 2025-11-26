@@ -1,0 +1,11 @@
+flask
+flask-sqlalchemy
+flask-jwt-extended
+flask-cors
+flask-migrate
+python-dotenv
+mysqlclient
+# On Debian/Ubuntu-based Docker `default-libmysqlclient-dev`.
+# macOS `brew install mysql-client`
+cryptography
+gunicorn

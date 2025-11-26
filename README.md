@@ -1,23 +1,29 @@
-# shhh Project - Groupe B
+# 🔒 Shhh Project - End-to-End Encrypted Messaging
 
-Coquard-Morel Lou-Ann
-Hamri Mathis
-Massenya Theo
-Houngbedji Dylan-Thomas
-Roy Nicolas
+**Groupe B**: Coquard-Morel Lou-Ann, Hamri Mathis, Massenya Theo, Houngbedji Dylan-Thomas, Roy Nicolas
 
-## Overview
+Une application pour communiquer de manière anonyme et sécurisée avec chiffrement de bout en bout.
 
-Une application pour communiquer de manière anonyme et sécurisée. 
+## 🌐 Live Environments
 
-## Technologies Utilisées
-- Backend : Python / Flask
+- **Production**: https://shh.univ-edt.fr
 
-- Frontend : Dart / Flutter
+## 💻 Technologies
 
-- Base de données : Mariadb
+### Backend
+- **Framework**: Python 3.11 / Flask
+- **Database**: MariaDB
+- **WSGI Server**: Gunicorn
+- **Web Server**: Nginx
+- **SSL/TLS**: Let's Encrypt
 
-- Peut être conteneurisé avec Docker ???
+### Frontend
+- **Framework**: Dart / Flutter
+
+### DevOps
+- **CI/CD**: GitLab CI/CD
+- **Deployment**: Automated (test) & Manual approval (production)
+- **Monitoring**: Custom scripts
 
 ## Algorithmes
 
@@ -113,3 +119,58 @@ Quand Bob reçoit un message :
 - Textuel 
 - Image
 - Audio (Bonus) 
+
+
+
+# Déploiement sur VPS avec GitLab CI/CD
+## 1. VPS Preparation
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose
+sudo usermod -aG docker $USER
+```
+
+## 2. GitLab CI/CD Configuration
+Variables stoquées dans **Settings > CI/CD > Variables**:
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `SSH_HOST` | Adresse ip du serveur | `159.65.124.188` |
+| `SSH_USER` | SSH username | ...|
+| `SSH_PRIVATE_KEY` | Clé privée SSH | ...|
+| `ENV_FILE` | Content of the `.env` file |  |
+
+```env
+FLASK_ENV=production
+SECRET_KEY=change-this-to-a-secure-random-string
+JWT_SECRET_KEY=change-this-to-another-secure-random-string
+
+MYSQL_ROOT_PASSWORD=secure_root_password
+MYSQL_DATABASE=shhh_db
+MYSQL_USER=shhh_user
+MYSQL_PASSWORD=secure_db_password
+```
+
+## 3. Setup SSL 
+1. Pousser le code sur la branche `main`. (pipeline CI/CD s'exécute, peut échouer au début vu que les certificats manquent)
+2. SSH dans le VPS.
+3. Lancer le script d'initialisation:
+```bash
+cd ~/shhh_project
+chmod +x deployment/init-letsencrypt.sh
+sudo ./deployment/init-letsencrypt.sh
+```
+
+## 4. Pour la db
+Les tables se créent automatiquement au premier déploiement. Depuis les models SQLAlchemy.
+
+## 5. Déploiement automatique
+Une fois le setup une première fois, chaque push sur la branche `main` va:
+- Construire les images Docker
+- Pousser les images sur le VPS
+- Redémarrer les conteneurs avec les nouvelles images
+
+# Pour faire tourner en local (dev)
+
+```bash
+docker-compose -f docker-compose.dev.yml up --build
+```
