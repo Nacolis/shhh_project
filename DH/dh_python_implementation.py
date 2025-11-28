@@ -1,12 +1,16 @@
 """
 Implementation complete de Diffie-Hellman pour messagerie chiffree
-Utilise des fonctions DH personnalisees + cryptographie moderne
+Utilise des fonctions DH personnalisees + AES-CBC
 """
 
 import secrets
 import os
 import hashlib
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+# Modules pour le chiffrement AES CBC
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
+import base64
 
 # PARAMETRES DH (RFC 3526 - MODP 14)
 
@@ -50,6 +54,52 @@ def derive_aes_key(shared_secret):
     return hashlib.sha256(secret_bytes).digest()
 
 
+# FONCTIONS DE CHIFFREMENT AES-CBC
+
+def aes_encrypt(plaintext, key):
+    """
+    Chiffre un message avec AES-256-CBC
+    plaintext: bytes ou str
+    key: cle AES de 32 bytes
+    Retourne: (iv, ciphertext_base64)
+    """
+    if isinstance(plaintext, str):
+        plaintext = plaintext.encode('utf-8')
+    
+    # Generer un IV aleatoire pour chaque message
+    iv = os.urandom(16)
+    
+    # Creer le cipher AES en mode CBC
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    
+    # Chiffrer avec padding
+    ciphertext = cipher.encrypt(pad(plaintext, AES.block_size))
+    
+    # Encoder en base64 pour le transport
+    ciphertext_b64 = base64.b64encode(ciphertext)
+    
+    return iv, ciphertext_b64
+
+def aes_decrypt(ciphertext_b64, key, iv):
+    """
+    Dechiffre un message avec AES-256-CBC
+    ciphertext_b64: ciphertext encode en base64
+    key: cle AES de 32 bytes
+    iv: vecteur d'initialisation de 16 bytes
+    Retourne: plaintext (str)
+    """
+    # Decoder le base64
+    ciphertext = base64.b64decode(ciphertext_b64)
+    
+    # Creer le cipher AES en mode CBC
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    
+    # Dechiffrer et enlever le padding
+    plaintext = unpad(cipher.decrypt(ciphertext), AES.block_size)
+    
+    return plaintext.decode('utf-8')
+
+
 # CLASSE UTILISATEUR
 
 class DHUser:
@@ -61,7 +111,6 @@ class DHUser:
         self.public_key = None
         self.shared_secrets = {}
         self.groups = {}
-        
 
     def generate_keys(self):
         """Genere une paire de cles privee/publique"""
@@ -78,31 +127,30 @@ class DHUser:
         aes_key = derive_aes_key(shared_secret)
         self.shared_secrets[peer_name] = aes_key
     
-    # -------------------FONCTIONS DE CHIFFREMENT ET DÉCHIFFREMENT-----------------
+    # FONCTIONS DE CHIFFREMENT ET DECHIFFREMENT
+    
     def encrypt_message(self, peer_name, message):
-        """Chiffre un message pour un pair avec AES-GCM"""
+        """Chiffre un message pour un pair avec AES-CBC"""
         if peer_name not in self.shared_secrets:
             raise ValueError(f"Pas de secret partage avec {peer_name}")
         
         key = self.shared_secrets[peer_name]
-        aesgcm = AESGCM(key)
-        nonce = os.urandom(12)
-        ciphertext = aesgcm.encrypt(nonce, message.encode('utf-8'), None)
+        iv, ciphertext = aes_encrypt(message, key)
         
-        return nonce, ciphertext
+        return iv, ciphertext
     
-    def decrypt_message(self, peer_name, nonce, ciphertext):
+    def decrypt_message(self, peer_name, iv, ciphertext):
         """Dechiffre un message d'un pair"""
         if peer_name not in self.shared_secrets:
             raise ValueError(f"Pas de secret partage avec {peer_name}")
         
         key = self.shared_secrets[peer_name]
-        aesgcm = AESGCM(key)
-        plaintext = aesgcm.decrypt(nonce, ciphertext, None)
+        plaintext = aes_decrypt(ciphertext, key, iv)
         
-        return plaintext.decode('utf-8')
+        return plaintext
 
-    # ----------------------FONCTIONS SUR LES GROUPES-----------------------
+    # FONCTIONS SUR LES GROUPES
+    
     def create_group(self, group_name, members_names):
         """Cree un groupe avec une liste de noms de membres"""
         if group_name in self.groups:
@@ -129,8 +177,8 @@ class DHUser:
             raise ValueError(f"Le groupe {group_name} n'existe pas")
         return self.groups[group_name]
     
-
-    # -----------------FONCTIONS D'ENVOIE DE MESSAGES------------------
+    # FONCTIONS D'ENVOIE DE MESSAGES
+    
     def send_direct_message(self, peer_name, message):
         """Envoie un message direct a un pair"""
         return self.encrypt_message(peer_name, message)
@@ -145,8 +193,8 @@ class DHUser:
         
         for member_name in members:
             if member_name != self.name:
-                nonce, ciphertext = self.encrypt_message(member_name, message)
-                encrypted_messages[member_name] = (nonce, ciphertext)
+                iv, ciphertext = self.encrypt_message(member_name, message)
+                encrypted_messages[member_name] = (iv, ciphertext)
         
         return encrypted_messages
 
@@ -158,7 +206,7 @@ class GroupChatPairwise:
     Chat de groupe avec secrets pairwise
     Chaque membre a un secret avec chaque autre membre
     SIMULE COMMENT AGIT UN GROUPE
-    NE SERA PAS UTILISER
+    NE SERA PAS UTILISE
     """
     
     def __init__(self, group_name):
@@ -189,12 +237,12 @@ class GroupChatPairwise:
         
         for recipient_name in self.members:
             if recipient_name != sender_name:
-                nonce, ciphertext = sender.encrypt_message(recipient_name, message)
-                encrypted_msgs[recipient_name] = (nonce, ciphertext)
+                iv, ciphertext = sender.encrypt_message(recipient_name, message)
+                encrypted_msgs[recipient_name] = (iv, ciphertext)
         
         return encrypted_msgs
     
-    def receive_message(self, recipient_name, sender_name, nonce, ciphertext):
+    def receive_message(self, recipient_name, sender_name, iv, ciphertext):
         """Dechiffre un message recu"""
         recipient = self.members[recipient_name]
-        return recipient.decrypt_message(sender_name, nonce, ciphertext)
+        return recipient.decrypt_message(sender_name, iv, ciphertext)
