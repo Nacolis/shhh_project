@@ -52,3 +52,6 @@ db_dev_data/
 
 # Logs
 *.log
+
+# first DH file
+DH/dh_python_implementation_i.py
