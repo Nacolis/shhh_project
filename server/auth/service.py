@@ -25,3 +25,12 @@ def register_user(unique_username, username, password, rsa_public_key, dh_public
     db.session.commit()
 
     return new_user
+
+def authenticate_user(unique_username, password):
+    """Authenticate a user by unique_username and password."""
+    user = User.query.filter_by(unique_username=unique_username).first()
+    
+    if user and check_password_hash(user.password_hash, password):
+        return user
+    
+    return None

@@ -1,3 +1,5 @@
+# Shhh - Secure Chat Server
+
 # 🔒 Shhh Project - End-to-End Encrypted Messaging
 
 **Groupe B**: Coquard-Morel Lou-Ann, Hamri Mathis, Massenya Theo, Houngbedji Dylan-Thomas, Roy Nicolas
@@ -176,3 +178,13 @@ docker-compose -f docker-compose.dev.yml up --build
 ```
 
 
+## API Documentation (Swagger)
+
+Once the server is running, a Bootstrap Swagger UI is available at:
+ - `http://localhost:5000/apidocs/` (default flasgger path) or `/apidocs/index.html`
+
+## problem app à résoudre 
+- Lorsque l'on crée une nouvelle conversation, on peut envoyer un message directe. Lorsque l'autre utilisateur se connecte, la nouvelle conversation s'affiche mais par contre le sharedSecret est null, il faut manuellement lancer une conversation avec cette personne pour que le sharedSecret soit généré et que les messages puissent être envoyés.
+- Problème d'horaire dans les messages (timezone)
+- L'app ne s'actualise pas automatiquement lorsqu'on reçoit un nouveau message (il faut appuyer sur le bouton refresh)
+- read unread des messages non implémenté
