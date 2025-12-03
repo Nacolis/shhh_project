@@ -1,3 +1,4 @@
+from time import timezone
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from . import service
@@ -171,7 +172,7 @@ def get_messages():
             "nonce": msg.nonce,
             "auth_tag": msg.auth_tag,
             "signature": msg.signature,
-            "timestamp": msg.created_at.isoformat()
+            "timestamp": msg.created_at.replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
         })
         
     return jsonify(result)
