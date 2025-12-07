@@ -1,9 +1,10 @@
 stages:
   - build
-  - deploy
+  - trigger-deploy
 
 variables:
-  IMAGE_TAG: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG
+  IMAGE_TAG: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+  IMAGE_LATEST: $CI_REGISTRY_IMAGE:latest
 
 build:
   stage: build
@@ -12,29 +13,8 @@ build:
     - docker:20.10.16-dind
   script:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker build -t $IMAGE_TAG .
+    - docker build -t $IMAGE_TAG -t $IMAGE_LATEST .
     - docker push $IMAGE_TAG
-
-deploy:
-  stage: deploy
-  image: alpine:latest
-  before_script:
-    - 'which ssh-agent || ( apk add --update openssh )'
-    - eval $(ssh-agent -s)
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
-    - mkdir -p ~/.ssh
-    - chmod 700 ~/.ssh
-    - ssh-keyscan $SSH_HOST >> ~/.ssh/known_hosts
-    - chmod 644 ~/.ssh/known_hosts
-  script:
-    - ssh $SSH_USER@$SSH_HOST "mkdir -p ~/shhh_project/deployment/nginx/conf.d ~/shhh_project/deployment"
-    - scp docker-compose.yml $SSH_USER@$SSH_HOST:~/shhh_project/
-    - scp -r deployment/nginx/conf.d $SSH_USER@$SSH_HOST:~/shhh_project/deployment/nginx/
-    - scp deployment/init-letsencrypt.sh $SSH_USER@$SSH_HOST:~/shhh_project/deployment/
-    - ssh $SSH_USER@$SSH_HOST "cd ~/shhh_project && echo \"$ENV_FILE\" > .env"
-    - ssh $SSH_USER@$SSH_HOST "cd ~/shhh_project && echo \"BACKEND_IMAGE=$IMAGE_TAG\" >> .env"
-    - ssh $SSH_USER@$SSH_HOST "cd ~/shhh_project && docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY"
-    - ssh $SSH_USER@$SSH_HOST "cd ~/shhh_project && docker-compose pull backend"
-    - ssh $SSH_USER@$SSH_HOST "cd ~/shhh_project && docker-compose up -d"
+    - docker push $IMAGE_LATEST
   only:
     - main
