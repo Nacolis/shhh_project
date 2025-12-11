@@ -30,6 +30,7 @@ instance/
 # Environment variables
 .env
 .env.local
+ex_aes_256/.venv_linux/
 
 # IDE
 .vscode/
