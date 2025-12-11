@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../core/theme/app_colors.dart';
@@ -14,10 +16,24 @@ class ConversationsScreen extends StatefulWidget {
   State<ConversationsScreen> createState() => _ConversationsScreenState();
 }
 
-class _ConversationsScreenState extends State<ConversationsScreen> {
+class _ConversationsScreenState extends State<ConversationsScreen>
+    with SingleTickerProviderStateMixin {
+  static const String _asciiLogo = '''
+███████╗██╗  ██╗██╗  ██╗██╗  ██╗
+██╔════╝██║  ██║██║  ██║██║  ██║
+███████╗███████║███████║███████║
+╚════██║██╔══██║██╔══██║██╔══██║
+███████║██║  ██║██║  ██║██║  ██║
+╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝''';
+
+  late final AnimationController _asciiController;
   @override
   void initState() {
     super.initState();
+    _asciiController = AnimationController(
+      duration: const Duration(seconds: 7),
+      vsync: this,
+    )..repeat();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = context.read<AppProvider>();
       provider.loadConversations();
@@ -87,14 +103,19 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
             child: NoiseOverlay(
               opacity: 0.02,
               child: SafeArea(
-                child: Column(
+                child: Stack(
                   children: [
-                    _buildHeader(provider),
-                    const CyberStatusBar(),
-                    Expanded(
-                      child: provider.conversations.isEmpty
-                          ? _buildEmptyState()
-                          : _buildConversationList(provider),
+                    Positioned.fill(child: _buildAsciiFlicker()),
+                    Column(
+                      children: [
+                        _buildHeader(provider),
+                        const CyberStatusBar(),
+                        Expanded(
+                          child: provider.conversations.isEmpty
+                              ? _buildEmptyState()
+                              : _buildConversationList(provider),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -219,6 +240,7 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
             timestamp: conversation.lastActivityAt,
             unreadCount: conversation.unreadCount,
             isGroup: conversation.isGroup,
+            avatarUrl: conversation.avatarUrl,
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
@@ -250,6 +272,46 @@ class _ConversationsScreenState extends State<ConversationsScreen> {
           child: const Icon(Icons.add, color: AppColors.background),
         ),
       ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _asciiController.dispose();
+    super.dispose();
+  }
+
+  Widget _buildAsciiFlicker() {
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _asciiController,
+        builder: (context, _) {
+          final t = _asciiController.value;
+          final pulse = (sin(2 * pi * (t * 3.1)) + 1) * 0.12; // 0..0.24
+          final noise = (sin(2 * pi * (t * 7.7 + 0.3)) + 1) * 0.05; // 0..0.10
+          final opacity = 0.04 + pulse + noise; // ~0.04..0.38
+          final yJitter = sin(2 * pi * (t * 1.3)) * 2;
+
+          return Center(
+            child: Transform.translate(
+              offset: Offset(0, yJitter),
+              child: Opacity(
+                opacity: opacity.clamp(0.05, 0.35).toDouble(),
+                child: Text(
+                  _asciiLogo,
+                  style: AppTextStyles.code.copyWith(
+                    fontSize: 8,
+                    height: 1.0,
+                    letterSpacing: 0,
+                    color: AppColors.neonGreen.withValues(alpha: 0.95),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }

@@ -345,6 +345,7 @@ class ConversationTile extends StatelessWidget {
   final DateTime? timestamp;
   final int unreadCount;
   final bool isGroup;
+  final String? avatarUrl;
   final VoidCallback? onTap;
 
   const ConversationTile({
@@ -354,6 +355,7 @@ class ConversationTile extends StatelessWidget {
     this.timestamp,
     this.unreadCount = 0,
     this.isGroup = false,
+    this.avatarUrl,
     this.onTap,
   });
 
@@ -372,6 +374,37 @@ class ConversationTile extends StatelessWidget {
     }
   }
 
+  Widget _buildDefaultAvatar() {
+    return Image.asset(
+      'assets/profil.png',
+      fit: BoxFit.cover,
+    );
+  }
+
+  Widget _buildAvatar() {
+    final borderColor = unreadCount > 0 ? AppColors.neonGreen : AppColors.borderColor;
+
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border.all(
+          color: borderColor,
+          width: unreadCount > 0 ? 2 : 1,
+        ),
+      ),
+      clipBehavior: Clip.hardEdge,
+      child: avatarUrl != null && avatarUrl!.isNotEmpty
+          ? Image.network(
+              avatarUrl!,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => _buildDefaultAvatar(),
+            )
+          : _buildDefaultAvatar(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Material(
@@ -387,24 +420,7 @@ class ConversationTile extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  border: Border.all(
-                    color: unreadCount > 0 ? AppColors.neonGreen : AppColors.borderColor,
-                    width: unreadCount > 0 ? 2 : 1,
-                  ),
-                ),
-                child: Center(
-                  child: Icon(
-                    isGroup ? Icons.group : Icons.person,
-                    color: AppColors.neonGreen,
-                    size: 24,
-                  ),
-                ),
-              ),
+              _buildAvatar(),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
