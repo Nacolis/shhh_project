@@ -143,7 +143,7 @@ Variables stoquées dans **Settings > CI/CD > Variables**:
 
 ```env
 FLASK_ENV=production
-SECRET_KEY=change-this-to-a-secure-random-string
+SECRET_KEY=change-this-to-a-secure-random-string    
 JWT_SECRET_KEY=change-this-to-another-secure-random-string
 
 MYSQL_ROOT_PASSWORD=secure_root_password
@@ -174,14 +174,14 @@ Une fois le setup une première fois, chaque push sur la branche `main` va:
 # Pour faire tourner en local (dev)
 
 ```bash
-docker-compose -f docker-compose.dev.yml up --build
+docker compose -f docker-compose.dev.yml up --build
 ```
 
 
 ## API Documentation (Swagger)
 
 Once the server is running, a Bootstrap Swagger UI is available at:
- - `http://localhost:5000/apidocs/` (default flasgger path) or `/apidocs/index.html`
+ - `http://localhost:5500/apidocs/` (default flasgger path) or `/apidocs/index.html`
 
 ## problem app à résoudre 
 - Lorsque l'on crée une nouvelle conversation, on peut envoyer un message directe. Lorsque l'autre utilisateur se connecte, la nouvelle conversation s'affiche mais par contre le sharedSecret est null, il faut manuellement lancer une conversation avec cette personne pour que le sharedSecret soit généré et que les messages puissent être envoyés.

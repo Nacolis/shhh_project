@@ -5,7 +5,7 @@ import 'package:pointycastle/export.dart';
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:crypto/crypto.dart' as crypto;
 
-/// Cryptography service for E2E encryption
+/// Service de cryptographie pour le chiffrement de bout en bout, la gestion des clés, et les signatures numériques.
 class CryptoService {
   static final _random = Random.secure();
   
@@ -16,9 +16,7 @@ class CryptoService {
     return secureRandom;
   }
 
-  // ==================== RSA KEY GENERATION ====================
-
-  /// Generate RSA key pair for signing and encryption
+  /// Génère une paire de clés RSA pour la signature et le chiffrement
   static AsymmetricKeyPair<RSAPublicKey, RSAPrivateKey> generateRSAKeyPair() {
     final keyGen = RSAKeyGenerator()
       ..init(ParametersWithRandom(
@@ -33,21 +31,21 @@ class CryptoService {
     );
   }
 
-  /// Convert RSA public key to PEM format
+  /// Convertit une clé publique RSA au format PEM
   static String rsaPublicKeyToPem(RSAPublicKey publicKey) {
     final bytes = _encodeRSAPublicKey(publicKey);
     final base64 = base64Encode(bytes);
     return '-----BEGIN PUBLIC KEY-----\n${_chunked(base64, 64)}\n-----END PUBLIC KEY-----';
   }
 
-  /// Convert RSA private key to PEM format
+  /// Convertit une clé privée RSA au format PEM
   static String rsaPrivateKeyToPem(RSAPrivateKey privateKey) {
     final bytes = _encodeRSAPrivateKey(privateKey);
     final base64 = base64Encode(bytes);
     return '-----BEGIN RSA PRIVATE KEY-----\n${_chunked(base64, 64)}\n-----END RSA PRIVATE KEY-----';
   }
 
-  /// Parse RSA public key from PEM
+  /// Analyse une clé publique RSA à partir du format PEM
   static RSAPublicKey rsaPublicKeyFromPem(String pem) {
     final lines = pem.split('\n')
       .where((line) => !line.startsWith('-----'))
@@ -56,7 +54,7 @@ class CryptoService {
     return _decodeRSAPublicKey(bytes);
   }
 
-  /// Parse RSA private key from PEM
+  /// Analyse une clé privée RSA à partir du format PEM
   static RSAPrivateKey rsaPrivateKeyFromPem(String pem) {
     final lines = pem.split('\n')
       .where((line) => !line.startsWith('-----'))
@@ -65,9 +63,9 @@ class CryptoService {
     return _decodeRSAPrivateKey(bytes);
   }
 
-  // ==================== DIFFIE-HELLMAN (Custom Implementation) ====================
+//Diffie Hellman (Échange de clés Diffie-Hellman)
   
-  // RFC 3526 Group 14 (2048-bit MODP)
+  // RFC 3526 Groupe 14 (MODP 2048-bit)
   static final BigInt _dhP = BigInt.parse(
     'FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74'
     '020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F1437'
@@ -81,11 +79,11 @@ class CryptoService {
   );
   static final BigInt _dhG = BigInt.from(2);
 
-  /// Generate DH key pair (returns private key and public key as BigInt)
+  /// Génère une paire de clés DH (retourne les clés privée et publique en tant que BigInt)
   static DHKeyPair generateDHKeyPair() {
-    // Generate random private key (x) between 2 and p-2
+    // Génère une clé privée aléatoire (x) entre 2 et p-2
     final privateKey = _generateRandomBigInt(_dhP - BigInt.two);
-    // Compute public key: y = g^x mod p
+    // Calcule la clé publique: y = g^x mod p
     final publicKey = _dhG.modPow(privateKey, _dhP);
     
     return DHKeyPair(privateKey: privateKey, publicKey: publicKey);
@@ -101,48 +99,48 @@ class CryptoService {
     return result;
   }
 
-  /// Export DH public key as base64
+  /// Exporte la clé publique DH en base64
   static String dhPublicKeyToBase64(BigInt publicKey) {
     return base64Encode(_bigIntToBytes(publicKey));
   }
 
-  /// Import DH public key from base64
+  /// Importe la clé publique DH à partir de base64
   static BigInt dhPublicKeyFromBase64(String base64Key) {
     return _bytesToBigInt(base64Decode(base64Key));
   }
 
-  /// Export DH private key as base64
+  /// Exporte la clé privée DH en base64
   static String dhPrivateKeyToBase64(BigInt privateKey) {
     return base64Encode(_bigIntToBytes(privateKey));
   }
 
-  /// Import DH private key from base64
+  /// Importe la clé privée DH à partir de base64
   static BigInt dhPrivateKeyFromBase64(String base64Key) {
     return _bytesToBigInt(base64Decode(base64Key));
   }
 
-  /// Compute shared secret using DH
+  /// Calcule le secret partagé en utilisant DH
   static Uint8List computeSharedSecret(BigInt privateKey, BigInt otherPublicKey) {
     // s = (y_other ^ x_self) mod p
     final sharedSecret = otherPublicKey.modPow(privateKey, _dhP);
     
-    // Derive 256-bit key from shared secret using SHA-256
+    // Dérive une clé 256-bit du secret partagé en utilisant SHA-256
     final secretBytes = _bigIntToBytes(sharedSecret);
     final hash = crypto.sha256.convert(secretBytes);
     return Uint8List.fromList(hash.bytes);
   }
 
-  // ==================== AES-GCM ENCRYPTION ====================
+  //AES
 
-  /// Encrypt message with AES-GCM
+  /// Encrypte un message avec AES-GCM
   static EncryptedData encryptAESGCM(String plaintext, Uint8List key) {
     final iv = encrypt.IV.fromSecureRandom(12); // 96-bit nonce for GCM
     final encrypter = encrypt.Encrypter(encrypt.AES(encrypt.Key(key), mode: encrypt.AESMode.gcm));
     
     final encrypted = encrypter.encrypt(plaintext, iv: iv);
     
-    // The encrypt library appends the 16-byte auth tag to the ciphertext
-    // We need to separate them for proper storage/transmission
+    // La bibliothèque encrypt ajoute la balise d'authentification 16-byte au texte chiffré
+    // Nous devons les séparer pour un stockage/transmission approprié
     final fullBytes = encrypted.bytes;
     final ciphertextBytes = fullBytes.sublist(0, fullBytes.length - 16);
     final authTagBytes = fullBytes.sublist(fullBytes.length - 16);
@@ -154,12 +152,12 @@ class CryptoService {
     );
   }
 
-  /// Decrypt message with AES-GCM
+  /// Déchiffre un message avec AES-GCM
   static String decryptAESGCM(EncryptedData data, Uint8List key) {
     final iv = encrypt.IV.fromBase64(data.nonce);
     final encrypter = encrypt.Encrypter(encrypt.AES(encrypt.Key(key), mode: encrypt.AESMode.gcm));
     
-    // Reconstruct the combined ciphertext + authTag that the library expects
+    // Reconstruit le texte chiffré combiné + balise d'authentification attendu par la bibliothèque
     final ciphertextBytes = base64Decode(data.ciphertext);
     final authTagBytes = base64Decode(data.authTag);
     final combined = Uint8List.fromList([...ciphertextBytes, ...authTagBytes]);
@@ -167,9 +165,9 @@ class CryptoService {
     return encrypter.decrypt(encrypt.Encrypted(combined), iv: iv);
   }
 
-  // ==================== RSA SIGNING ====================
+  //RSA - Signature numérique
 
-  /// Sign data with RSA private key
+  /// Signe des données avec la clé privée RSA
   static String sign(String data, RSAPrivateKey privateKey) {
     final signer = RSASigner(SHA256Digest(), '0609608648016503040201');
     signer.init(true, PrivateKeyParameter<RSAPrivateKey>(privateKey));
@@ -178,7 +176,7 @@ class CryptoService {
     return base64Encode(signature.bytes);
   }
 
-  /// Verify signature with RSA public key
+  /// Vérifie la signature avec la clé publique RSA
   static bool verify(String data, String signatureBase64, RSAPublicKey publicKey) {
     try {
       final signer = RSASigner(SHA256Digest(), '0609608648016503040201');
@@ -191,7 +189,7 @@ class CryptoService {
     }
   }
 
-  // ==================== HELPER METHODS ====================
+  // méthodes d'assistance
 
   static String _chunked(String str, int chunkSize) {
     final chunks = <String>[];
@@ -212,12 +210,12 @@ class CryptoService {
     return Uint8List.fromList(bytes);
   }
 
-  // ASN.1 encoding/decoding for RSA keys (simplified)
+  // Codage/décodage ASN.1 pour les clés RSA (simplifié)
   static Uint8List _encodeRSAPublicKey(RSAPublicKey key) {
     final modulus = _bigIntToBytes(key.modulus!);
     final exponent = _bigIntToBytes(key.exponent!);
     
-    // Simple encoding: length-prefixed concatenation
+    // Codage simple : concaténation préfixée par la longueur
     final buffer = BytesBuilder();
     buffer.addByte(modulus.length >> 8);
     buffer.addByte(modulus.length & 0xFF);
@@ -309,7 +307,7 @@ class CryptoService {
   }
 }
 
-/// Container for encrypted data
+/// Conteneur pour les données chiffrées
 class EncryptedData {
   final String ciphertext;
   final String nonce;
@@ -322,7 +320,7 @@ class EncryptedData {
   });
 }
 
-/// Container for DH key pair
+/// Conteneur pour la paire de clés DH
 class DHKeyPair {
   final BigInt privateKey;
   final BigInt publicKey;
