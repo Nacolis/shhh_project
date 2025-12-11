@@ -4,31 +4,16 @@ import 'dart:typed_data';
 import 'package:pointycastle/export.dart';
 import 'package:encrypt/encrypt.dart' as encrypt;
 import 'package:crypto/crypto.dart' as crypto;
+import '../core/secure/rsa.dart' as custom_rsa;
 
 /// Service de cryptographie pour le chiffrement de bout en bout, la gestion des clés, et les signatures numériques.
 class CryptoService {
   static final _random = Random.secure();
-  
-  static FortunaRandom _getSecureRandom() {
-    final secureRandom = FortunaRandom();
-    final seeds = List<int>.generate(32, (_) => _random.nextInt(256));
-    secureRandom.seed(KeyParameter(Uint8List.fromList(seeds)));
-    return secureRandom;
-  }
 
   /// Génère une paire de clés RSA pour la signature et le chiffrement
   static AsymmetricKeyPair<RSAPublicKey, RSAPrivateKey> generateRSAKeyPair() {
-    final keyGen = RSAKeyGenerator()
-      ..init(ParametersWithRandom(
-        RSAKeyGeneratorParameters(BigInt.parse('65537'), 2048, 64),
-        _getSecureRandom(),
-      ));
-    
-    final pair = keyGen.generateKeyPair();
-    return AsymmetricKeyPair<RSAPublicKey, RSAPrivateKey>(
-      pair.publicKey as RSAPublicKey,
-      pair.privateKey as RSAPrivateKey,
-    );
+    // Utilise l'implémentation RSA personnalisée depuis rsa.dart
+    return custom_rsa.genRsaKeypair(2048);
   }
 
   /// Convertit une clé publique RSA au format PEM
@@ -167,24 +152,22 @@ class CryptoService {
 
   //RSA - Signature numérique
 
-  /// Signe des données avec la clé privée RSA
+  /// Signe des données avec la clé privée RSA (implémentation personnalisée)
   static String sign(String data, RSAPrivateKey privateKey) {
-    final signer = RSASigner(SHA256Digest(), '0609608648016503040201');
-    signer.init(true, PrivateKeyParameter<RSAPrivateKey>(privateKey));
-    
-    final signature = signer.generateSignature(Uint8List.fromList(utf8.encode(data)));
-    return base64Encode(signature.bytes);
+    final result = custom_rsa.rsaSign(data, privateKey);
+    final BigInt sig = result['signature'] as BigInt;
+    // Conversion BigInt -> bytes -> base64
+    final sigBytes = _bigIntToBytes(sig);
+    return base64Encode(sigBytes);
   }
 
-  /// Vérifie la signature avec la clé publique RSA
+  /// Vérifie la signature avec la clé publique RSA (implémentation personnalisée)
   static bool verify(String data, String signatureBase64, RSAPublicKey publicKey) {
     try {
-      final signer = RSASigner(SHA256Digest(), '0609608648016503040201');
-      signer.init(false, PublicKeyParameter<RSAPublicKey>(publicKey));
-      
-      final signature = RSASignature(base64Decode(signatureBase64));
-      return signer.verifySignature(Uint8List.fromList(utf8.encode(data)), signature);
-    } catch (e) {
+      final sigBytes = base64Decode(signatureBase64);
+      final sigBigInt = _bytesToBigInt(Uint8List.fromList(sigBytes));
+      return custom_rsa.rsaVerify(data, sigBigInt, publicKey);
+    } catch (_) {
       return false;
     }
   }
