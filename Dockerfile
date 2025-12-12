@@ -26,4 +26,4 @@ ENV PYTHONPATH=/app
 EXPOSE 5000
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--access-logfile", "-", "--error-logfile", "-", "server.app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--worker-class", "eventlet", "--workers", "1", "--access-logfile", "-", "--error-logfile", "-", "server.app:app"]

@@ -41,6 +41,7 @@ class AppProvider extends ChangeNotifier {
 
       if (_authToken != null) {
         _apiService.setAuthToken(_authToken!);
+        await syncGroupsFromServer();
         await loadConversations();
         _connectWebSocket();
       }
@@ -147,6 +148,7 @@ class AppProvider extends ChangeNotifier {
         await _storageService.storeAuthToken(_authToken!);
         await _storageService.storeCurrentUser(_currentUser!);
 
+        await syncGroupsFromServer();
         await loadConversations();
         _connectWebSocket();
 
@@ -245,6 +247,55 @@ class AppProvider extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       _setError('Failed to load conversations: $e');
+    }
+  }
+
+  /// Sync groups from server to ensure user sees all groups they're a member of
+  Future<void> syncGroupsFromServer() async {
+    try {
+      final result = await _apiService.getUserGroups();
+      if (result.isTokenExpired) {
+        _handleTokenExpired();
+        return;
+      }
+
+      if (result.isSuccess && result.data != null) {
+        for (final group in result.data!) {
+          // Get group members to store locally
+          final membersResult = await _apiService.getGroupMembers(group.id);
+          List<String> memberUsernames = [];
+          
+          if (membersResult.isSuccess && membersResult.data != null) {
+            memberUsernames = membersResult.data!
+                .map((m) => m.uniqueUsername)
+                .toList();
+            
+            // Cache member keys for encryption
+            for (final member in membersResult.data!) {
+              await _storageService.cacheUserKeys(User(
+                id: member.id,
+                uniqueUsername: member.uniqueUsername,
+                username: member.username,
+                rsaPublicKey: member.rsaPublicKey,
+                dhPublicKey: member.dhPublicKey,
+              ));
+            }
+          }
+
+          // Create or update local conversation for this group
+          await _storageService.getOrCreateConversation(
+            group.id.toString(),
+            group.name,
+            ConversationType.group,
+            members: memberUsernames,
+          );
+          
+          // Join WebSocket room for this group
+          _webSocketService.joinGroup(group.id);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error syncing groups: $e');
     }
   }
 
@@ -606,6 +657,9 @@ class AppProvider extends ChangeNotifier {
     if (_currentUser == null) return;
 
     try {
+      // Also sync groups in case user was added to a new group
+      await syncGroupsFromServer();
+      
       final result = await _apiService.getAllPendingMessages();
       if (result.isTokenExpired) {
         _handleTokenExpired();

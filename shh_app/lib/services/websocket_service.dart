@@ -1,26 +1,17 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:web_socket_channel/status.dart' as status;
+import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../core/constants/api_constants.dart';
 
 /// Callback types for WebSocket events
 typedef OnMessageCallback = void Function(Map<String, dynamic> data);
 typedef OnConnectionCallback = void Function(bool connected);
 
-/// WebSocket service for real-time messaging
+/// WebSocket service for real-time messaging using Socket.IO
 class WebSocketService {
-  WebSocketChannel? _channel;
+  IO.Socket? _socket;
   String? _authToken;
   bool _isConnected = false;
-  bool _shouldReconnect = true;
-  int _reconnectAttempts = 0;
-  static const int _maxReconnectAttempts = 5;
-  static const Duration _reconnectDelay = Duration(seconds: 3);
-  
-  Timer? _reconnectTimer;
-  Timer? _pingTimer;
   
   // Event callbacks
   OnMessageCallback? onNewPrivateMessage;
@@ -30,141 +21,107 @@ class WebSocketService {
   
   bool get isConnected => _isConnected;
   
-  /// Connect to the WebSocket server
+  /// Connect to the Socket.IO server
   Future<void> connect(String authToken) async {
     _authToken = authToken;
-    _shouldReconnect = true;
-    await _establishConnection();
+    _establishConnection();
   }
   
-  Future<void> _establishConnection() async {
+  void _establishConnection() {
     if (_authToken == null) return;
     
     try {
-      final wsUrl = ApiConstants.websocketUrl;
-      final uri = Uri.parse('$wsUrl?token=$_authToken');
+      final wsUrl = ApiConstants.socketIOUrl;
       
-      _channel = WebSocketChannel.connect(uri);
+      _socket = IO.io(wsUrl, <String, dynamic>{
+        'transports': ['websocket', 'polling'],
+        'autoConnect': true,
+        'query': {'token': _authToken},
+        'extraHeaders': {'Authorization': 'Bearer $_authToken'},
+      });
       
-      _channel!.stream.listen(
-        _handleMessage,
-        onError: _handleError,
-        onDone: _handleDisconnect,
-      );
+      _socket!.onConnect((_) {
+        debugPrint('Socket.IO connected');
+        _isConnected = true;
+        onConnectionChanged?.call(true);
+      });
       
-      _isConnected = true;
-      _reconnectAttempts = 0;
-      onConnectionChanged?.call(true);
+      _socket!.onDisconnect((_) {
+        debugPrint('Socket.IO disconnected');
+        _isConnected = false;
+        onConnectionChanged?.call(false);
+      });
       
-      // Start ping timer to keep connection alive
-      _startPingTimer();
+      _socket!.onConnectError((error) {
+        debugPrint('Socket.IO connection error: $error');
+        _isConnected = false;
+        onConnectionChanged?.call(false);
+      });
       
-      debugPrint('WebSocket connected to $wsUrl');
+      _socket!.onError((error) {
+        debugPrint('Socket.IO error: $error');
+      });
+      
+      // Listen for events
+      _socket!.on('connected', (data) {
+        debugPrint('Socket.IO authenticated: $data');
+      });
+      
+      _socket!.on('new_private_message', (data) {
+        debugPrint('New private message: $data');
+        if (data is Map<String, dynamic>) {
+          onNewPrivateMessage?.call(data);
+        } else {
+          onNewPrivateMessage?.call({'data': data});
+        }
+      });
+      
+      _socket!.on('new_group_message', (data) {
+        debugPrint('New group message: $data');
+        if (data is Map<String, dynamic>) {
+          onNewGroupMessage?.call(data);
+        } else {
+          onNewGroupMessage?.call({'data': data});
+        }
+      });
+      
+      _socket!.on('message_available', (data) {
+        debugPrint('Message available: $data');
+        if (data is Map<String, dynamic>) {
+          onMessageAvailable?.call(data);
+        } else {
+          onMessageAvailable?.call({'data': data});
+        }
+      });
+      
+      _socket!.connect();
+      
+      debugPrint('Socket.IO connecting to $wsUrl');
     } catch (e) {
-      debugPrint('WebSocket connection error: $e');
+      debugPrint('Socket.IO connection error: $e');
       _isConnected = false;
       onConnectionChanged?.call(false);
-      _scheduleReconnect();
-    }
-  }
-  
-  void _handleMessage(dynamic message) {
-    try {
-      final data = jsonDecode(message as String) as Map<String, dynamic>;
-      final eventType = data['type'] as String? ?? data.keys.first;
-      
-      debugPrint('WebSocket received: $eventType');
-      
-      switch (eventType) {
-        case 'connected':
-          debugPrint('WebSocket authenticated successfully');
-          break;
-        case 'new_private_message':
-          onNewPrivateMessage?.call(data);
-          break;
-        case 'new_group_message':
-          onNewGroupMessage?.call(data);
-          break;
-        case 'message_available':
-          onMessageAvailable?.call(data);
-          break;
-        case 'pong':
-          // Server responded to ping
-          break;
-        default:
-          debugPrint('Unknown WebSocket event: $eventType');
-      }
-    } catch (e) {
-      debugPrint('Error parsing WebSocket message: $e');
-    }
-  }
-  
-  void _handleError(dynamic error) {
-    debugPrint('WebSocket error: $error');
-    _isConnected = false;
-    onConnectionChanged?.call(false);
-    _scheduleReconnect();
-  }
-  
-  void _handleDisconnect() {
-    debugPrint('WebSocket disconnected');
-    _isConnected = false;
-    _pingTimer?.cancel();
-    onConnectionChanged?.call(false);
-    _scheduleReconnect();
-  }
-  
-  void _scheduleReconnect() {
-    if (!_shouldReconnect) return;
-    if (_reconnectAttempts >= _maxReconnectAttempts) {
-      debugPrint('Max reconnection attempts reached');
-      return;
-    }
-    
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(_reconnectDelay * (_reconnectAttempts + 1), () {
-      _reconnectAttempts++;
-      debugPrint('Attempting to reconnect (attempt $_reconnectAttempts)');
-      _establishConnection();
-    });
-  }
-  
-  void _startPingTimer() {
-    _pingTimer?.cancel();
-    _pingTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (_isConnected) {
-        send({'type': 'ping'});
-      }
-    });
-  }
-  
-  /// Send a message through the WebSocket
-  void send(Map<String, dynamic> data) {
-    if (_channel != null && _isConnected) {
-      _channel!.sink.add(jsonEncode(data));
     }
   }
   
   /// Join a group room to receive group messages
   void joinGroup(int groupId) {
-    send({'type': 'join_group', 'group_id': groupId});
+    _socket?.emit('join_group', {'group_id': groupId});
   }
   
   /// Leave a group room
   void leaveGroup(int groupId) {
-    send({'type': 'leave_group', 'group_id': groupId});
+    _socket?.emit('leave_group', {'group_id': groupId});
   }
   
-  /// Disconnect from the WebSocket server
+  /// Disconnect from the Socket.IO server
   void disconnect() {
-    _shouldReconnect = false;
-    _reconnectTimer?.cancel();
-    _pingTimer?.cancel();
-    _channel?.sink.close(status.goingAway);
-    _channel = null;
+    _socket?.disconnect();
+    _socket?.dispose();
+    _socket = null;
     _isConnected = false;
     onConnectionChanged?.call(false);
-    debugPrint('WebSocket disconnected manually');
+    debugPrint('Socket.IO disconnected manually');
   }
   
   /// Dispose of the service

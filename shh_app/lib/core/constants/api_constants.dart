@@ -5,9 +5,9 @@ class ApiConstants {
       ? 'http://localhost:5500/api'
       : 'https://shh.univ-edt.fr/api';
   
-  static String get websocketUrl => isDevelopment
-      ? 'ws://localhost:5500/socket.io'
-      : 'wss://shh.univ-edt.fr/socket.io';
+  static String get socketIOUrl => isDevelopment
+      ? 'http://localhost:5500'
+      : 'https://shh.univ-edt.fr';
   
   static String get login => '$baseUrl/auth/login';
   static String get register => '$baseUrl/auth/register';
