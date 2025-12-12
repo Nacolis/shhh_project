@@ -6,9 +6,9 @@ class AppColors {
   static const Color surface = Color(0xFF111111);
   static const Color surfaceAlt = Color(0xFF1A1A1A);
 
-  static const Color neonGreen = Color(0xFF39FF14);
-  static const Color hotPink = Color(0xFFFF00FF);
-  static const Color safetyOrange = Color(0xFFFF4500);
+  static const Color neonGreen = Color.fromARGB(255, 187, 40, 255);
+  static const Color hotPink = Color.fromARGB(255, 255, 20, 243);
+  static const Color safetyOrange = Color.fromARGB(255, 226, 31, 86);
 
   static const Color cyan = Color(0xFF00FFFF);
   static const Color electricBlue = Color(0xFF0066FF);
@@ -20,7 +20,7 @@ class AppColors {
   static const Color textGreen = neonGreen;
 
   static const Color success = neonGreen;
-  static const Color error = Color(0xFFFF0000);
+  static const Color error = Color.fromARGB(255, 255, 16, 164);
   static const Color warning = safetyOrange;
   static const Color info = cyan;
 

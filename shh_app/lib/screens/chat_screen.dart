@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../core/theme/app_colors.dart';
@@ -15,14 +17,20 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen>
+    with SingleTickerProviderStateMixin {
   final _scrollController = ScrollController();
   bool _isSending = false;
   bool _isRefreshing = false;
+  late final AnimationController _bgController;
 
   @override
   void initState() {
     super.initState();
+    _bgController = AnimationController(
+      duration: const Duration(seconds: 6),
+      vsync: this,
+    )..repeat();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AppProvider>().loadMessages(widget.conversation.id);
     });
@@ -67,19 +75,24 @@ class _ChatScreenState extends State<ChatScreen> {
             child: NoiseOverlay(
               opacity: 0.02,
               child: SafeArea(
-                child: Column(
+                child: Stack(
                   children: [
-                    _buildHeader(),
+                    Positioned.fill(child: _buildBackgroundPattern()),
+                    Column(
+                      children: [
+                        _buildHeader(),
 
-                    const CyberStatusBar(),
+                        const CyberStatusBar(),
 
-                    Expanded(
-                      child: messages.isEmpty
-                          ? _buildEmptyChat()
-                          : _buildMessageList(messages, provider),
+                        Expanded(
+                          child: messages.isEmpty
+                              ? _buildEmptyChat()
+                              : _buildMessageList(messages, provider),
+                        ),
+
+                        MessageInput(onSend: _sendMessage, isLoading: _isSending),
+                      ],
                     ),
-
-                    MessageInput(onSend: _sendMessage, isLoading: _isSending),
                   ],
                 ),
               ),
@@ -106,29 +119,7 @@ class _ChatScreenState extends State<ChatScreen> {
             onPressed: () => Navigator.of(context).pop(),
           ),
           const SizedBox(width: 12),
-
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: AppColors.background,
-              border: Border.all(
-                color: widget.conversation.isGroup
-                    ? AppColors.hotPink
-                    : AppColors.neonGreen,
-                width: 2,
-              ),
-            ),
-            child: Center(
-              child: Icon(
-                widget.conversation.isGroup ? Icons.group : Icons.person,
-                color: widget.conversation.isGroup
-                    ? AppColors.hotPink
-                    : AppColors.neonGreen,
-                size: 20,
-              ),
-            ),
-          ),
+          _buildConversationAvatar(),
           const SizedBox(width: 12),
 
           Expanded(
@@ -332,6 +323,19 @@ class _ChatScreenState extends State<ChatScreen> {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
+  Widget _buildBackgroundPattern() {
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: _bgController,
+        builder: (context, _) {
+          return CustomPaint(
+            painter: _SnakeSkinPainter(progress: _bgController.value),
+          );
+        },
+      ),
+    );
+  }
+
   void _showConversationInfo() {
     showModalBottomSheet(
       context: context,
@@ -399,6 +403,36 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Widget _buildDefaultAvatarImage() {
+    return Image.asset(
+      'assets/profil.png',
+      fit: BoxFit.cover,
+    );
+  }
+
+  Widget _buildConversationAvatar() {
+    final borderColor =
+        widget.conversation.isGroup ? AppColors.hotPink : AppColors.neonGreen;
+
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        border: Border.all(color: borderColor, width: 2),
+      ),
+      clipBehavior: Clip.hardEdge,
+      child: widget.conversation.avatarUrl != null &&
+              widget.conversation.avatarUrl!.isNotEmpty
+          ? Image.network(
+              widget.conversation.avatarUrl!,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => _buildDefaultAvatarImage(),
+            )
+          : _buildDefaultAvatarImage(),
+    );
+  }
+
   Widget _buildInfoRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -422,7 +456,38 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _bgController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+}
+
+class _SnakeSkinPainter extends CustomPainter {
+  final double progress;
+
+  const _SnakeSkinPainter({required this.progress});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint();
+    final phase = progress * 2 * pi;
+    const double cell = 22;
+    const double gap = 12;
+
+    for (double y = -cell; y < size.height + cell; y += cell + gap) {
+      for (double x = -cell; x < size.width + cell; x += cell + gap) {
+        final wave = sin((x * 0.08) + (y * 0.08) + phase);
+        final opacity = 0.02 + (max(0, wave) * 0.07);
+        if (opacity < 0.025) continue;
+
+        paint.color = AppColors.neonGreen.withValues(alpha: opacity);
+        canvas.drawRect(Rect.fromLTWH(x, y, cell, cell), paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SnakeSkinPainter oldDelegate) {
+    return oldDelegate.progress != progress;
   }
 }
