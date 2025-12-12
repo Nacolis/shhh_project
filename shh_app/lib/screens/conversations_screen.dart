@@ -27,6 +27,7 @@ class _ConversationsScreenState extends State<ConversationsScreen>
 ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝''';
 
   late final AnimationController _asciiController;
+  bool _reLoginDialogOpen = false;
   @override
   void initState() {
     super.initState();
@@ -80,11 +81,15 @@ class _ConversationsScreenState extends State<ConversationsScreen>
   }
 
   void _showReLoginDialog() {
+    if (_reLoginDialogOpen) return;
+    _reLoginDialogOpen = true;
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => const ReLoginDialog(),
-    );
+    ).whenComplete(() {
+      _reLoginDialogOpen = false;
+    });
   }
 
   @override
@@ -95,7 +100,11 @@ class _ConversationsScreenState extends State<ConversationsScreen>
         builder: (context, provider, _) {
           if (provider.tokenExpired) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              _showReLoginDialog();
+              if (!mounted) return;
+              // Re-check provider state at callback time and avoid stacking dialogs.
+              if (context.read<AppProvider>().tokenExpired) {
+                _showReLoginDialog();
+              }
             });
           }
 

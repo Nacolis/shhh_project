@@ -23,8 +23,6 @@ class User(db.Model):
         Index('idx_user_id', 'id'),
     )
 
-    sent_friend_requests = relationship('FriendRequest', foreign_keys='FriendRequest.sender_id', back_populates='sender', cascade='all, delete-orphan')
-    received_friend_requests = relationship('FriendRequest', foreign_keys='FriendRequest.receiver_id', back_populates='receiver', cascade='all, delete-orphan')
     sent_messages = relationship('PrivateMessage', foreign_keys='PrivateMessage.sender_id', back_populates='sender', cascade='all, delete-orphan')
     received_messages = relationship('PrivateMessage', foreign_keys='PrivateMessage.receiver_id', back_populates='receiver', cascade='all, delete-orphan')
     created_groups = relationship('Group', back_populates='creator', cascade='all, delete-orphan')
@@ -41,49 +39,12 @@ class DHParameter(db.Model):
     generator_g = Column(Text, nullable=False, comment='Générateur g')
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
 
-
-class FriendRequest(db.Model):
-    __tablename__ = 'friend_requests'
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    sender_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, comment='ID de l\'utilisateur qui envoie la demande')
-    receiver_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, comment='ID de l\'utilisateur qui reçoit la demande')
-    status = Column(Enum('pending', 'accepted', 'rejected', name='friend_request_status'), default='pending')
-    created_at = Column(TIMESTAMP, default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    __table_args__ = (
-        db.UniqueConstraint('sender_id', 'receiver_id', name='unique_friend_request'),
-        Index('idx_receiver_status', 'receiver_id', 'status'),
-    )
-    
-    sender = relationship('User', foreign_keys=[sender_id], back_populates='sent_friend_requests')
-    receiver = relationship('User', foreign_keys=[receiver_id], back_populates='received_friend_requests')
-
-
-class Friendship(db.Model):
-    __tablename__ = 'friendships'
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user1_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-    user2_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-    created_at = Column(TIMESTAMP, default=datetime.utcnow)
-    
-    __table_args__ = (
-        db.UniqueConstraint('user1_id', 'user2_id', name='unique_friendship'),
-        CheckConstraint('user1_id < user2_id', name='check_user_order'),
-        Index('idx_user1', 'user1_id'),
-        Index('idx_user2', 'user2_id'),
-    )
-
-
 class Group(db.Model):
     __tablename__ = 'groups'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_name = Column(String(255), nullable=False)
     creator_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, comment='Créateur du groupe')
-    aes_key_encrypted = Column(Text, comment='Clé AES du groupe (optionnelle si gestion côté client)')
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -145,9 +106,6 @@ class GroupMessage(db.Model):
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(Integer, ForeignKey('groups.id', ondelete='CASCADE'), nullable=False)
     sender_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-    ciphertext = Column(Text, nullable=False, comment='Message chiffré avec la clé AES du groupe')
-    nonce = Column(String(255), nullable=False)
-    auth_tag = Column(String(255), nullable=False)
     signature = Column(Text, nullable=False, comment='Signature RSA de l\'expéditeur')
     message_type = Column(Enum('text', 'image', 'audio', name='group_message_type'), default='text')
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
@@ -159,6 +117,28 @@ class GroupMessage(db.Model):
     
     group = relationship('Group', back_populates='messages')
     sender = relationship('User', back_populates='group_messages')
+    recipients = relationship('GroupMessageRecipient', back_populates='message', cascade='all, delete-orphan')
+
+
+class GroupMessageRecipient(db.Model):
+    __tablename__ = 'group_message_recipients'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    message_id = Column(Integer, ForeignKey('group_messages.id', ondelete='CASCADE'), nullable=False)
+    recipient_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, comment='Destinataire du message')
+    ciphertext = Column(Text, nullable=False, comment='Message chiffré pour ce destinataire spécifique')
+    nonce = Column(String(255), nullable=False, comment='Nonce/IV pour AES-GCM')
+    auth_tag = Column(String(255), nullable=False, comment='Tag d\'authentification GCM')
+    is_read = Column(Boolean, default=False)
+    
+    __table_args__ = (
+        db.UniqueConstraint('message_id', 'recipient_id', name='unique_message_recipient'),
+        Index('idx_message', 'message_id'),
+        Index('idx_recipient', 'recipient_id'),
+        Index('idx_recipient_unread', 'recipient_id', 'is_read'),
+    )
+    
+    message = relationship('GroupMessage', back_populates='recipients')
 
 
 class DHSession(db.Model):

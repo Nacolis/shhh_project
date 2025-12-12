@@ -266,10 +266,63 @@ def create_group():
     
     return jsonify({"message": "Group created", "group_id": group.id}), 201
 
+@bp.route('/groups/<int:group_id>/members', methods=['GET'])
+@jwt_required()
+def get_group_members(group_id):
+    """Get all members of a group
+    ---
+    tags:
+      - Groups
+    security:
+      - Bearer: []
+    parameters:
+      - name: group_id
+        in: path
+        type: integer
+        required: true
+        description: The group ID
+    responses:
+      200:
+        description: List of group members
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              user_id:
+                type: integer
+              username:
+                type: string
+              unique_username:
+                type: string
+              role:
+                type: string
+              joined_at:
+                type: string
+                format: date-time
+      403:
+        description: Not a member of the group
+    """
+    current_user_id = int(get_jwt_identity())
+    try:
+        members = service.get_group_members(group_id, current_user_id)
+        result = []
+        for user, membership in members:
+            result.append({
+                "user_id": user.id,
+                "username": user.username,
+                "unique_username": user.unique_username,
+                "role": membership.role,
+                "joined_at": membership.joined_at.isoformat()
+            })
+        return jsonify(result)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 403
+
 @bp.route('/groups/<int:group_id>/messages', methods=['POST'])
 @jwt_required()
 def send_group_message(group_id):
-    """Send a message to a group
+    """Send a message to a group with pairwise encryption
     ---
     tags:
       - Groups
@@ -286,32 +339,50 @@ def send_group_message(group_id):
         required: true
         schema:
           type: object
+          required:
+            - encrypted_payloads
+            - signature
           properties:
-            ciphertext:
-              type: string
-            nonce:
-              type: string
-            auth_tag:
-              type: string
+            encrypted_payloads:
+              type: array
+              description: Array of encrypted versions, one for each recipient
+              items:
+                type: object
+                properties:
+                  recipient_id:
+                    type: integer
+                  ciphertext:
+                    type: string
+                  nonce:
+                    type: string
+                  auth_tag:
+                    type: string
             signature:
               type: string
+              description: Digital signature of the sender
     responses:
       201:
         description: Message sent
+      400:
+        description: Missing fields or invalid data
       403:
         description: Not a member of the group
     """
     current_user_id = int(get_jwt_identity())
     data = request.get_json()
     
+    encrypted_payloads = data.get('encrypted_payloads', [])
+    signature = data.get('signature')
+    
+    if not encrypted_payloads or not signature:
+        return jsonify({"error": "Missing encrypted_payloads or signature"}), 400
+    
     try:
         service.save_group_message(
             sender_id=current_user_id,
             group_id=group_id,
-            ciphertext=data.get('ciphertext'),
-            nonce=data.get('nonce'),
-            auth_tag=data.get('auth_tag'),
-            signature=data.get('signature')
+            encrypted_payloads=encrypted_payloads,
+            signature=signature
         )
         return jsonify({"message": "Message sent"}), 201
     except ValueError as e:
@@ -334,7 +405,7 @@ def get_group_messages(group_id):
         description: The group ID
     responses:
       200:
-        description: List of group messages
+        description: List of group messages with user-specific encryption
         schema:
           type: array
           items:
@@ -346,6 +417,7 @@ def get_group_messages(group_id):
                 type: string
               ciphertext:
                 type: string
+                description: Message encrypted for this specific user
               nonce:
                 type: string
               auth_tag:
@@ -362,13 +434,13 @@ def get_group_messages(group_id):
     try:
         messages = service.get_group_messages(group_id, current_user_id)
         result = []
-        for msg in messages:
+        for msg, recipient in messages:
             result.append({
                 "id": msg.id,
                 "sender": msg.sender.unique_username,
-                "ciphertext": msg.ciphertext,
-                "nonce": msg.nonce,
-                "auth_tag": msg.auth_tag,
+                "ciphertext": recipient.ciphertext,
+                "nonce": recipient.nonce,
+                "auth_tag": recipient.auth_tag,
                 "signature": msg.signature,
                 "timestamp": msg.created_at.isoformat()
             })
