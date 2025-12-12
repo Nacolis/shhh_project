@@ -2,6 +2,7 @@ from datetime import timezone
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from . import service
+from ..websocket import notify_new_private_message, notify_user_message_available
 import logging
 
 bp = Blueprint('api', __name__)
@@ -124,6 +125,12 @@ def send_message():
         auth_tag=auth_tag,
         signature=signature
     )
+    
+    sender = service.get_user_by_id(current_user_id)
+    notify_new_private_message(receiver.id, {
+        'sender': sender.unique_username if sender else 'unknown',
+        'type': 'private_message'
+    })
     
     return jsonify({"message": "Message sent"}), 201
 
@@ -251,7 +258,7 @@ def create_group():
     current_user_id = int(get_jwt_identity())
     data = request.get_json()
     group_name = data.get('group_name')
-    member_usernames = data.get('members', []) # List of unique_usernames
+    member_usernames = data.get('members', [])
     
     if not group_name:
         return jsonify({"error": "Group name required"}), 400
@@ -266,63 +273,10 @@ def create_group():
     
     return jsonify({"message": "Group created", "group_id": group.id}), 201
 
-@bp.route('/groups/<int:group_id>/members', methods=['GET'])
-@jwt_required()
-def get_group_members(group_id):
-    """Get all members of a group
-    ---
-    tags:
-      - Groups
-    security:
-      - Bearer: []
-    parameters:
-      - name: group_id
-        in: path
-        type: integer
-        required: true
-        description: The group ID
-    responses:
-      200:
-        description: List of group members
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              user_id:
-                type: integer
-              username:
-                type: string
-              unique_username:
-                type: string
-              role:
-                type: string
-              joined_at:
-                type: string
-                format: date-time
-      403:
-        description: Not a member of the group
-    """
-    current_user_id = int(get_jwt_identity())
-    try:
-        members = service.get_group_members(group_id, current_user_id)
-        result = []
-        for user, membership in members:
-            result.append({
-                "user_id": user.id,
-                "username": user.username,
-                "unique_username": user.unique_username,
-                "role": membership.role,
-                "joined_at": membership.joined_at.isoformat()
-            })
-        return jsonify(result)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 403
-
 @bp.route('/groups/<int:group_id>/messages', methods=['POST'])
 @jwt_required()
 def send_group_message(group_id):
-    """Send a message to a group with pairwise encryption
+    """Send a message to a group (pairwise encrypted for each member)
     ---
     tags:
       - Groups
@@ -339,59 +293,64 @@ def send_group_message(group_id):
         required: true
         schema:
           type: object
-          required:
-            - encrypted_payloads
-            - signature
           properties:
-            encrypted_payloads:
+            encrypted_copies:
               type: array
-              description: Array of encrypted versions, one for each recipient
+              description: Array of encrypted copies for each recipient
               items:
                 type: object
                 properties:
-                  recipient_id:
-                    type: integer
+                  recipient_username:
+                    type: string
                   ciphertext:
                     type: string
                   nonce:
                     type: string
                   auth_tag:
                     type: string
-            signature:
-              type: string
-              description: Digital signature of the sender
+                  signature:
+                    type: string
     responses:
       201:
         description: Message sent
-      400:
-        description: Missing fields or invalid data
       403:
         description: Not a member of the group
     """
     current_user_id = int(get_jwt_identity())
     data = request.get_json()
     
-    encrypted_payloads = data.get('encrypted_payloads', [])
-    signature = data.get('signature')
-    
-    if not encrypted_payloads or not signature:
-        return jsonify({"error": "Missing encrypted_payloads or signature"}), 400
+    encrypted_copies = data.get('encrypted_copies', [])
+    if not encrypted_copies:
+        return jsonify({"error": "No encrypted copies provided"}), 400
     
     try:
-        service.save_group_message(
+        message, copies, recipient_ids = service.save_group_message(
             sender_id=current_user_id,
             group_id=group_id,
-            encrypted_payloads=encrypted_payloads,
-            signature=signature
+            encrypted_copies=encrypted_copies
         )
-        return jsonify({"message": "Message sent"}), 201
+        
+        sender = service.get_user_by_id(current_user_id)
+        for recipient_id in recipient_ids:
+            notify_user_message_available(recipient_id, {
+                'type': 'group_message',
+                'group_id': group_id,
+                'message_id': message.id,
+                'sender': sender.unique_username if sender else 'unknown'
+            })
+        
+        return jsonify({
+            "message": "Message sent",
+            "message_id": message.id,
+            "copies_created": len(copies)
+        }), 201
     except ValueError as e:
         return jsonify({"error": str(e)}), 403
 
 @bp.route('/groups/<int:group_id>/messages', methods=['GET'])
 @jwt_required()
 def get_group_messages(group_id):
-    """Get messages from a group
+    """Get messages from a group (returns user's encrypted copies)
     ---
     tags:
       - Groups
@@ -405,7 +364,7 @@ def get_group_messages(group_id):
         description: The group ID
     responses:
       200:
-        description: List of group messages with user-specific encryption
+        description: List of group messages
         schema:
           type: array
           items:
@@ -413,11 +372,12 @@ def get_group_messages(group_id):
             properties:
               id:
                 type: integer
+              message_id:
+                type: integer
               sender:
                 type: string
               ciphertext:
                 type: string
-                description: Message encrypted for this specific user
               nonce:
                 type: string
               auth_tag:
@@ -434,16 +394,203 @@ def get_group_messages(group_id):
     try:
         messages = service.get_group_messages(group_id, current_user_id)
         result = []
-        for msg, recipient in messages:
+        for msg, copy in messages:
             result.append({
-                "id": msg.id,
+                "id": copy.id,
+                "message_id": msg.id,
                 "sender": msg.sender.unique_username,
-                "ciphertext": recipient.ciphertext,
-                "nonce": recipient.nonce,
-                "auth_tag": recipient.auth_tag,
-                "signature": msg.signature,
-                "timestamp": msg.created_at.isoformat()
+                "group_id": group_id,
+                "ciphertext": copy.ciphertext,
+                "nonce": copy.nonce,
+                "auth_tag": copy.auth_tag,
+                "signature": copy.signature,
+                "timestamp": msg.created_at.replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
             })
         return jsonify(result)
     except ValueError as e:
         return jsonify({"error": str(e)}), 403
+
+@bp.route('/groups/<int:group_id>/members', methods=['GET'])
+@jwt_required()
+def get_group_members(group_id):
+    """Get all members of a group with their public keys
+    ---
+    tags:
+      - Groups
+    security:
+      - Bearer: []
+    parameters:
+      - name: group_id
+        in: path
+        type: integer
+        required: true
+        description: The group ID
+    responses:
+      200:
+        description: List of group members with keys
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              unique_username:
+                type: string
+              username:
+                type: string
+              rsa_public_key:
+                type: string
+              dh_public_key:
+                type: string
+      403:
+        description: Not a member of the group
+    """
+    current_user_id = int(get_jwt_identity())
+    
+    from ..models import GroupMember
+    member = GroupMember.query.filter_by(group_id=group_id, user_id=current_user_id).first()
+    if not member:
+        return jsonify({"error": "Not a member of this group"}), 403
+    
+    members = service.get_group_members(group_id)
+    result = []
+    for user in members:
+        result.append({
+            "id": user.id,
+            "unique_username": user.unique_username,
+            "username": user.username,
+            "rsa_public_key": user.rsa_public_key,
+            "dh_public_key": user.dh_public_key
+        })
+    return jsonify(result)
+
+@bp.route('/groups', methods=['GET'])
+@jwt_required()
+def get_user_groups():
+    """Get all groups the user is a member of
+    ---
+    tags:
+      - Groups
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: List of groups
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              name:
+                type: string
+              member_count:
+                type: integer
+              created_at:
+                type: string
+                format: date-time
+    """
+    current_user_id = int(get_jwt_identity())
+    groups = service.get_user_groups(current_user_id)
+    
+    result = []
+    for group in groups:
+        result.append({
+            "id": group.id,
+            "name": group.group_name,
+            "member_count": len(group.members),
+            "created_at": group.created_at.replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
+        })
+    return jsonify(result)
+
+@bp.route('/messages/pending', methods=['GET'])
+@jwt_required()
+def get_all_pending_messages():
+    """Get all pending messages (private + group) for the current user
+    ---
+    tags:
+      - Messages
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: All pending messages
+        schema:
+          type: object
+          properties:
+            private_messages:
+              type: array
+            group_messages:
+              type: array
+    """
+    current_user_id = int(get_jwt_identity())
+    
+    private_msgs = service.get_pending_messages(current_user_id)
+    private_result = []
+    for msg in private_msgs:
+        private_result.append({
+            "id": msg.id,
+            "type": "private",
+            "sender": msg.sender.unique_username,
+            "ciphertext": msg.ciphertext,
+            "nonce": msg.nonce,
+            "auth_tag": msg.auth_tag,
+            "signature": msg.signature,
+            "timestamp": msg.created_at.replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
+        })
+    
+    group_copies = service.get_pending_group_messages(current_user_id)
+    group_result = []
+    for copy in group_copies:
+        msg = copy.message
+        group_result.append({
+            "id": copy.id,
+            "message_id": msg.id,
+            "type": "group",
+            "group_id": msg.group_id,
+            "sender": msg.sender.unique_username,
+            "ciphertext": copy.ciphertext,
+            "nonce": copy.nonce,
+            "auth_tag": copy.auth_tag,
+            "signature": copy.signature,
+            "timestamp": msg.created_at.replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
+        })
+    
+    return jsonify({
+        "private_messages": private_result,
+        "group_messages": group_result
+    })
+
+@bp.route('/messages/group/ack', methods=['POST'])
+@jwt_required()
+def ack_group_messages():
+    """Mark group message copies as read
+    ---
+    tags:
+      - Messages
+    security:
+      - Bearer: []
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            copy_ids:
+              type: array
+              items:
+                type: integer
+              description: List of group message copy IDs to mark as read
+    responses:
+      200:
+        description: Messages marked as read
+    """
+    current_user_id = int(get_jwt_identity())
+    data = request.get_json()
+    copy_ids = data.get('copy_ids', [])
+    
+    service.mark_group_messages_as_read(copy_ids, current_user_id)
+    return jsonify({"message": "Messages marked as read"}), 200

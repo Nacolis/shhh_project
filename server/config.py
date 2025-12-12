@@ -7,8 +7,6 @@ class Config:
 
 class DevelopmentConfig(Config):
     DEBUG = True
-    # switch to mysqlclient (mysql+mysqldb) for better performance (C extension),
-    # keep env var override if set
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
         'mysql+mysqldb://shhh_user:devpass123@localhost/shhh_dev'
 

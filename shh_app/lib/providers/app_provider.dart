@@ -7,6 +7,7 @@ import '../services/services.dart';
 class AppProvider extends ChangeNotifier {
   final ApiService _apiService = ApiService();
   final StorageService _storageService = StorageService();
+  final WebSocketService _webSocketService = WebSocketService();
 
   AuthUser? _currentUser;
   String? _authToken;
@@ -14,10 +15,12 @@ class AppProvider extends ChangeNotifier {
   String? _error;
   List<Conversation> _conversations = [];
   Map<String, List<Message>> _messages = {};
+  bool _isWebSocketConnected = false;
 
   // Token expiration callback
   bool _tokenExpired = false;
   bool get tokenExpired => _tokenExpired;
+  bool get isWebSocketConnected => _isWebSocketConnected;
 
   // Getters
   AuthUser? get currentUser => _currentUser;
@@ -39,11 +42,41 @@ class AppProvider extends ChangeNotifier {
       if (_authToken != null) {
         _apiService.setAuthToken(_authToken!);
         await loadConversations();
+        _connectWebSocket();
       }
     } catch (e) {
       _setError('Failed to initialize: $e');
     }
     _setLoading(false);
+  }
+
+  void _connectWebSocket() {
+    if (_authToken == null) return;
+    
+    _webSocketService.onConnectionChanged = (connected) {
+      _isWebSocketConnected = connected;
+      notifyListeners();
+    };
+    
+    _webSocketService.onNewPrivateMessage = (data) {
+      debugPrint('New private message notification: $data');
+      fetchMessages();
+    };
+    
+    _webSocketService.onNewGroupMessage = (data) {
+      debugPrint('New group message notification: $data');
+      final groupId = data['group_id'];
+      if (groupId != null) {
+        fetchMessages();
+      }
+    };
+    
+    _webSocketService.onMessageAvailable = (data) {
+      debugPrint('Message available notification: $data');
+      fetchMessages();
+    };
+    
+    _webSocketService.connect(_authToken!);
   }
 
   Future<bool> register({
@@ -115,6 +148,7 @@ class AppProvider extends ChangeNotifier {
         await _storageService.storeCurrentUser(_currentUser!);
 
         await loadConversations();
+        _connectWebSocket();
 
         notifyListeners();
         return true;
@@ -131,6 +165,7 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    _webSocketService.disconnect();
     _apiService.clearAuthToken();
     await _storageService.clearSecureStorage();
 
@@ -138,6 +173,7 @@ class AppProvider extends ChangeNotifier {
     _authToken = null;
     _conversations = [];
     _messages = {};
+    _isWebSocketConnected = false;
 
     notifyListeners();
   }
@@ -145,6 +181,7 @@ class AppProvider extends ChangeNotifier {
   Future<void> resetApp() async {
     _setLoading(true);
     try {
+      _webSocketService.disconnect();
       _apiService.clearAuthToken();
       await _storageService.clearAll();
       _currentUser = null;
@@ -152,6 +189,7 @@ class AppProvider extends ChangeNotifier {
       _conversations = [];
       _messages = {};
       _tokenExpired = false;
+      _isWebSocketConnected = false;
 
       notifyListeners();
     } catch (e) {
@@ -347,114 +385,239 @@ class AppProvider extends ChangeNotifier {
     if (_currentUser == null) return false;
 
     try {
-      Uint8List? sharedSecret;
-
-      if (!isGroup) {
-        final secretBase64 = await _storageService.getSharedSecret(
-          conversationId,
-        );
-        print("Retrieved shared secret base64: $secretBase64");
-        if (secretBase64 != null) {
-          sharedSecret = base64Decode(secretBase64);
-        }
-      }
-
-      sharedSecret ??= Uint8List.fromList(List.generate(32, (i) => i));
-
-      final encrypted = CryptoService.encryptAESGCM(content, sharedSecret);
-
-
       final rsaPrivateKeyPem = await _storageService.getRSAPrivateKey();
-      String signature = '';
-      if (rsaPrivateKeyPem != null) {
-        final rsaPrivateKey = CryptoService.rsaPrivateKeyFromPem(
+      final localId = const Uuid().v4();
+      
+      if (isGroup) {
+        // For group messages, encrypt for each member individually (pairwise)
+        return await _sendGroupMessagePairwise(
+          conversationId,
+          content,
+          localId,
           rsaPrivateKeyPem,
         );
-        signature = CryptoService.sign(encrypted.ciphertext, rsaPrivateKey);
-      }
-
-      final localId = const Uuid().v4();
-      final message = Message(
-        localId: localId,
-        senderId: _currentUser!.uniqueUsername,
-        receiverId: isGroup ? null : conversationId,
-        groupId: isGroup ? int.tryParse(conversationId) : null,
-        ciphertext: encrypted.ciphertext,
-        nonce: encrypted.nonce,
-        authTag: encrypted.authTag,
-        signature: signature,
-        timestamp: DateTime.now(),
-        status: MessageStatus.pending,
-        decryptedContent: content, 
-      );
-      await _storageService.saveMessage(message, conversationId);
-
-      _messages[conversationId] = [
-        ...(_messages[conversationId] ?? []),
-        message,
-      ];
-      notifyListeners();
-
-      ApiResult<void> result;
-      if (isGroup) {
-        result = await _apiService.sendGroupMessage(
-          int.parse(conversationId),
-          message,
-        );
       } else {
-        result = await _apiService.sendMessage(message);
-      }
-      if (result.isTokenExpired) {
-        _handleTokenExpired();
-        await _storageService.updateMessageStatus(
+        // For private messages, use existing logic
+        return await _sendPrivateMessage(
+          conversationId,
+          content,
           localId,
-          MessageStatus.failed,
-        );
-        return false;
-      }
-      
-      if (result.isSuccess) {
-        await _storageService.updateMessageStatus(localId, MessageStatus.sent);
-        final index = _messages[conversationId]!.indexWhere(
-          (m) => m.localId == localId,
-        );
-        if (index != -1) {
-          _messages[conversationId]![index] = message.copyWith(
-            status: MessageStatus.sent,
-          );
-          notifyListeners();
-        }
-      } else {
-        await _storageService.updateMessageStatus(
-          localId,
-          MessageStatus.failed,
+          rsaPrivateKeyPem,
         );
       }
-
-      await _storageService.updateLastActivity(conversationId, DateTime.now());
-      await loadConversations();
-
-      return result.isSuccess;
     } catch (e) {
       _setError('Failed to send message: $e');
       return false;
     }
   }
 
+  Future<bool> _sendPrivateMessage(
+    String conversationId,
+    String content,
+    String localId,
+    String? rsaPrivateKeyPem,
+  ) async {
+    Uint8List? sharedSecret;
+    final secretBase64 = await _storageService.getSharedSecret(conversationId);
+    print("Retrieved shared secret base64: $secretBase64");
+    if (secretBase64 != null) {
+      sharedSecret = base64Decode(secretBase64);
+    }
+
+    sharedSecret ??= Uint8List.fromList(List.generate(32, (i) => i));
+
+    final encrypted = CryptoService.encryptAESGCM(content, sharedSecret);
+
+    String signature = '';
+    if (rsaPrivateKeyPem != null) {
+      final rsaPrivateKey = CryptoService.rsaPrivateKeyFromPem(rsaPrivateKeyPem);
+      signature = CryptoService.sign(encrypted.ciphertext, rsaPrivateKey);
+    }
+
+    final message = Message(
+      localId: localId,
+      senderId: _currentUser!.uniqueUsername,
+      receiverId: conversationId,
+      ciphertext: encrypted.ciphertext,
+      nonce: encrypted.nonce,
+      authTag: encrypted.authTag,
+      signature: signature,
+      timestamp: DateTime.now(),
+      status: MessageStatus.pending,
+      decryptedContent: content,
+    );
+    await _storageService.saveMessage(message, conversationId);
+
+    _messages[conversationId] = [
+      ...(_messages[conversationId] ?? []),
+      message,
+    ];
+    notifyListeners();
+
+    final result = await _apiService.sendMessage(message);
+    
+    return await _handleSendResult(result, localId, conversationId, message);
+  }
+
+  Future<bool> _sendGroupMessagePairwise(
+    String conversationId,
+    String content,
+    String localId,
+    String? rsaPrivateKeyPem,
+  ) async {
+    final groupId = int.parse(conversationId);
+    
+    // Fetch group members with their public keys
+    final membersResult = await _apiService.getGroupMembers(groupId);
+    if (membersResult.isTokenExpired) {
+      _handleTokenExpired();
+      return false;
+    }
+    if (!membersResult.isSuccess || membersResult.data == null) {
+      _setError(membersResult.error ?? 'Failed to get group members');
+      return false;
+    }
+
+    final members = membersResult.data!;
+    final encryptedCopies = <EncryptedMessageCopy>[];
+    
+    // Encrypt message for each member using their DH public key
+    for (final member in members) {
+      // Skip self
+      if (member.uniqueUsername == _currentUser!.uniqueUsername) continue;
+      
+      try {
+        // Get or compute shared secret with this member
+        var secretBase64 = await _storageService.getSharedSecret(member.uniqueUsername);
+        Uint8List sharedSecret;
+        
+        if (secretBase64 != null) {
+          sharedSecret = base64Decode(secretBase64);
+        } else if (member.dhPublicKey != null) {
+          // Compute shared secret
+          final myDHPrivateKey = await _storageService.getDHPrivateKey();
+          if (myDHPrivateKey != null) {
+            sharedSecret = CryptoService.computeSharedSecret(
+              CryptoService.dhPrivateKeyFromBase64(myDHPrivateKey),
+              CryptoService.dhPublicKeyFromBase64(member.dhPublicKey!),
+            );
+            await _storageService.storeSharedSecret(
+              member.uniqueUsername,
+              base64Encode(sharedSecret),
+            );
+          } else {
+            sharedSecret = Uint8List.fromList(List.generate(32, (i) => i));
+          }
+        } else {
+          sharedSecret = Uint8List.fromList(List.generate(32, (i) => i));
+        }
+
+        // Encrypt message for this member
+        final encrypted = CryptoService.encryptAESGCM(content, sharedSecret);
+
+        String signature = '';
+        if (rsaPrivateKeyPem != null) {
+          final rsaPrivateKey = CryptoService.rsaPrivateKeyFromPem(rsaPrivateKeyPem);
+          signature = CryptoService.sign(encrypted.ciphertext, rsaPrivateKey);
+        }
+
+        encryptedCopies.add(EncryptedMessageCopy(
+          recipientUsername: member.uniqueUsername,
+          ciphertext: encrypted.ciphertext,
+          nonce: encrypted.nonce,
+          authTag: encrypted.authTag,
+          signature: signature,
+        ));
+      } catch (e) {
+        debugPrint('Failed to encrypt for member ${member.uniqueUsername}: $e');
+      }
+    }
+
+    if (encryptedCopies.isEmpty) {
+      _setError('Failed to encrypt message for any group member');
+      return false;
+    }
+
+    // Save local copy of the message (with our own encryption for display)
+    final mySecret = Uint8List.fromList(List.generate(32, (i) => i));
+    final myEncrypted = CryptoService.encryptAESGCM(content, mySecret);
+    
+    final message = Message(
+      localId: localId,
+      senderId: _currentUser!.uniqueUsername,
+      groupId: groupId,
+      ciphertext: myEncrypted.ciphertext,
+      nonce: myEncrypted.nonce,
+      authTag: myEncrypted.authTag,
+      signature: '',
+      timestamp: DateTime.now(),
+      status: MessageStatus.pending,
+      decryptedContent: content,
+    );
+    await _storageService.saveMessage(message, conversationId);
+
+    _messages[conversationId] = [
+      ...(_messages[conversationId] ?? []),
+      message,
+    ];
+    notifyListeners();
+
+    // Send to server
+    final request = SendGroupMessageRequest(encryptedCopies: encryptedCopies);
+    final result = await _apiService.sendGroupMessage(groupId, request);
+    
+    return await _handleSendResult(result, localId, conversationId, message);
+  }
+
+  Future<bool> _handleSendResult(
+    ApiResult<void> result,
+    String localId,
+    String conversationId,
+    Message message,
+  ) async {
+    if (result.isTokenExpired) {
+      _handleTokenExpired();
+      await _storageService.updateMessageStatus(localId, MessageStatus.failed);
+      return false;
+    }
+    
+    if (result.isSuccess) {
+      await _storageService.updateMessageStatus(localId, MessageStatus.sent);
+      final index = _messages[conversationId]!.indexWhere(
+        (m) => m.localId == localId,
+      );
+      if (index != -1) {
+        _messages[conversationId]![index] = message.copyWith(
+          status: MessageStatus.sent,
+        );
+        notifyListeners();
+      }
+    } else {
+      await _storageService.updateMessageStatus(localId, MessageStatus.failed);
+    }
+
+    await _storageService.updateLastActivity(conversationId, DateTime.now());
+    await loadConversations();
+
+    return result.isSuccess;
+  }
+
   Future<void> fetchMessages() async {
     if (_currentUser == null) return;
 
     try {
-      final result = await _apiService.getPendingMessages();
+      final result = await _apiService.getAllPendingMessages();
       if (result.isTokenExpired) {
         _handleTokenExpired();
         return;
       }
 
       if (result.isSuccess && result.data != null) {
-        final messageIds = <int>[];
+        final privateMessageIds = <int>[];
+        final groupCopyIds = <int>[];
 
-        for (final message in result.data!) {
+        // Process private messages
+        for (final message in result.data!.privateMessages) {
           final decryptedContent = await _decryptMessage(message);
           final decryptedMessage = message.copyWith(
             decryptedContent: decryptedContent,
@@ -470,11 +633,34 @@ class AppProvider extends ChangeNotifier {
           );
 
           if (message.id != null) {
-            messageIds.add(message.id!);
+            privateMessageIds.add(message.id!);
           }
         }
-        if (messageIds.isNotEmpty) {
-          await _apiService.acknowledgeMessages(messageIds);
+        
+        // Process group messages
+        for (final message in result.data!.groupMessages) {
+          final groupId = message.groupId;
+          if (groupId == null) continue;
+          
+          final conversationId = groupId.toString();
+          final decryptedContent = await _decryptMessage(message);
+          final decryptedMessage = message.copyWith(
+            decryptedContent: decryptedContent,
+          );
+
+          await _storageService.saveMessage(decryptedMessage, conversationId);
+
+          if (message.id != null) {
+            groupCopyIds.add(message.id!);
+          }
+        }
+        
+        // Acknowledge messages
+        if (privateMessageIds.isNotEmpty) {
+          await _apiService.acknowledgeMessages(privateMessageIds);
+        }
+        if (groupCopyIds.isNotEmpty) {
+          await _apiService.acknowledgeGroupMessages(groupCopyIds);
         }
 
         await loadConversations();

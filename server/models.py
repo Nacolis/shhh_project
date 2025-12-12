@@ -101,12 +101,12 @@ class PrivateMessage(db.Model):
 
 
 class GroupMessage(db.Model):
+    """Group message header - stores metadata and links to encrypted copies"""
     __tablename__ = 'group_messages'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(Integer, ForeignKey('groups.id', ondelete='CASCADE'), nullable=False)
     sender_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-    signature = Column(Text, nullable=False, comment='Signature RSA de l\'expéditeur')
     message_type = Column(Enum('text', 'image', 'audio', name='group_message_type'), default='text')
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     
@@ -117,28 +117,30 @@ class GroupMessage(db.Model):
     
     group = relationship('Group', back_populates='messages')
     sender = relationship('User', back_populates='group_messages')
-    recipients = relationship('GroupMessageRecipient', back_populates='message', cascade='all, delete-orphan')
+    encrypted_copies = relationship('GroupMessageCopy', back_populates='message', cascade='all, delete-orphan')
 
 
-class GroupMessageRecipient(db.Model):
-    __tablename__ = 'group_message_recipients'
+class GroupMessageCopy(db.Model):
+    """Encrypted copy of a group message for each recipient (pairwise encryption)"""
+    __tablename__ = 'group_message_copies'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     message_id = Column(Integer, ForeignKey('group_messages.id', ondelete='CASCADE'), nullable=False)
-    recipient_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, comment='Destinataire du message')
-    ciphertext = Column(Text, nullable=False, comment='Message chiffré pour ce destinataire spécifique')
-    nonce = Column(String(255), nullable=False, comment='Nonce/IV pour AES-GCM')
-    auth_tag = Column(String(255), nullable=False, comment='Tag d\'authentification GCM')
+    recipient_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    ciphertext = Column(Text, nullable=False, comment='Message chiffré avec la clé partagée avec ce destinataire')
+    nonce = Column(String(255), nullable=False)
+    auth_tag = Column(String(255), nullable=False)
+    signature = Column(Text, nullable=False, comment='Signature RSA de l\'expéditeur')
     is_read = Column(Boolean, default=False)
     
     __table_args__ = (
-        db.UniqueConstraint('message_id', 'recipient_id', name='unique_message_recipient'),
-        Index('idx_message', 'message_id'),
-        Index('idx_recipient', 'recipient_id'),
+        Index('idx_message_recipient', 'message_id', 'recipient_id'),
         Index('idx_recipient_unread', 'recipient_id', 'is_read'),
+        db.UniqueConstraint('message_id', 'recipient_id', name='unique_message_recipient'),
     )
     
-    message = relationship('GroupMessage', back_populates='recipients')
+    message = relationship('GroupMessage', back_populates='encrypted_copies')
+    recipient = relationship('User')
 
 
 class DHSession(db.Model):

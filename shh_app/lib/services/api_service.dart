@@ -14,6 +14,8 @@ class ApiService {
     _authToken = null;
   }
 
+  String? get authToken => _authToken;
+
   Map<String, String> get _headers => {
     'Content-Type': 'application/json',
     if (_authToken != null) 'Authorization': 'Bearer $_authToken',
@@ -155,6 +157,50 @@ class ApiService {
     }
   }
 
+  Future<ApiResult<List<Group>>> getUserGroups() async {
+    try {
+      final response = await http.get(
+        Uri.parse(ApiConstants.groups),
+        headers: _headers,
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        final groups = data.map((e) => Group.fromJson(e)).toList();
+        return ApiResult.success(groups);
+      } else if (response.statusCode == 401) {
+        return ApiResult.tokenExpired();
+      } else {
+        return ApiResult.failure('Failed to fetch groups');
+      }
+    } catch (e) {
+      return ApiResult.failure('Network error: $e');
+    }
+  }
+
+  Future<ApiResult<List<GroupMember>>> getGroupMembers(int groupId) async {
+    try {
+      final response = await http.get(
+        Uri.parse(ApiConstants.groupMembers(groupId)),
+        headers: _headers,
+      );
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        final members = data.map((e) => GroupMember.fromJson(e)).toList();
+        return ApiResult.success(members);
+      } else if (response.statusCode == 401) {
+        return ApiResult.tokenExpired();
+      } else if (response.statusCode == 403) {
+        return ApiResult.failure('Not a member of this group');
+      } else {
+        return ApiResult.failure('Failed to fetch group members');
+      }
+    } catch (e) {
+      return ApiResult.failure('Network error: $e');
+    }
+  }
+
   Future<ApiResult<List<Message>>> getGroupMessages(int groupId) async {
     try {
       final response = await http.get(
@@ -176,12 +222,12 @@ class ApiService {
     }
   }
 
-  Future<ApiResult<void>> sendGroupMessage(int groupId, Message message) async {
+  Future<ApiResult<void>> sendGroupMessage(int groupId, SendGroupMessageRequest request) async {
     try {
       final response = await http.post(
         Uri.parse(ApiConstants.groupMessages(groupId)),
         headers: _headers,
-        body: jsonEncode(message.toGroupApiJson()),
+        body: jsonEncode(request.toJson()),
       );
 
       if (response.statusCode == 201) {
@@ -191,6 +237,46 @@ class ApiService {
       } else {
         final error = jsonDecode(response.body);
         return ApiResult.failure(error['message'] ?? 'Failed to send message');
+      }
+    } catch (e) {
+      return ApiResult.failure('Network error: $e');
+    }
+  }
+
+  Future<ApiResult<PendingMessagesResponse>> getAllPendingMessages() async {
+    try {
+      final response = await http.get(
+        Uri.parse(ApiConstants.pendingMessages),
+        headers: _headers,
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return ApiResult.success(PendingMessagesResponse.fromJson(data));
+      } else if (response.statusCode == 401) {
+        return ApiResult.tokenExpired();
+      } else {
+        return ApiResult.failure('Failed to fetch pending messages');
+      }
+    } catch (e) {
+      return ApiResult.failure('Network error: $e');
+    }
+  }
+
+  Future<ApiResult<void>> acknowledgeGroupMessages(List<int> copyIds) async {
+    try {
+      final response = await http.post(
+        Uri.parse(ApiConstants.groupMessagesAck),
+        headers: _headers,
+        body: jsonEncode({'copy_ids': copyIds}),
+      );
+
+      if (response.statusCode == 200) {
+        return ApiResult.success(null);
+      } else if (response.statusCode == 401) {
+        return ApiResult.tokenExpired();
+      } else {
+        return ApiResult.failure('Failed to acknowledge group messages');
       }
     } catch (e) {
       return ApiResult.failure('Network error: $e');

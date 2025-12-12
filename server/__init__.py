@@ -9,12 +9,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Initialize extensions
+
 db = SQLAlchemy()
 jwt = JWTManager()
 migrate = Migrate()
 
-# Swagger configuration
+
+from server.websocket import socketio
+
+
 swagger_config = {
     "headers": [],
     "specs": [
@@ -59,12 +62,15 @@ def create_app(config_name=None):
     
     app.config.from_object(f'server.config.{config_name.capitalize()}Config')
     
-    # Initialize extensions with app
+    
     db.init_app(app)
     jwt.init_app(app)
     migrate.init_app(app, db)
-    CORS(app)
+    CORS(app, resources={r"/*": {"origins": "*"}})
     Swagger(app, config=swagger_config, template=swagger_template)
+    
+    
+    socketio.init_app(app)
     
     from server.auth.routes import bp as auth_bp
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
@@ -91,8 +97,8 @@ def register_commands(app):
         db.create_all()
         print('Database tables created !')
     
-    # @app.cli.command('reset-db')
-    # def reset_db():
-    #     db.drop_all()
-    #     db.create_all()
-    #     print('Database reset !')
+    
+    
+    
+    
+    
