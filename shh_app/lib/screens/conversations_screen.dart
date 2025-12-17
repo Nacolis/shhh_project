@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_text_styles.dart';
+import '../models/models.dart';
 import '../providers/app_provider.dart';
 import '../widgets/widgets.dart';
 import 'chat_screen.dart';
@@ -243,22 +244,188 @@ class _ConversationsScreenState extends State<ConversationsScreen>
         itemCount: provider.conversations.length,
         itemBuilder: (context, index) {
           final conversation = provider.conversations[index];
-          return ConversationTile(
-            name: conversation.name,
-            lastMessage: conversation.lastMessage?.decryptedContent,
-            timestamp: conversation.lastActivityAt,
-            unreadCount: conversation.unreadCount,
-            isGroup: conversation.isGroup,
-            avatarUrl: conversation.avatarUrl,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => ChatScreen(conversation: conversation),
-                ),
+          return Dismissible(
+            key: Key(conversation.id),
+            direction: DismissDirection.endToStart,
+            confirmDismiss: (direction) async {
+              return await _showDeleteConfirmation(conversation);
+            },
+            onDismissed: (direction) async {
+              await provider.deleteConversation(
+                conversation.id,
+                isGroup: conversation.isGroup,
               );
             },
+            background: Container(
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.only(right: 20),
+              color: AppColors.error,
+              child: const Icon(
+                Icons.delete,
+                color: AppColors.background,
+              ),
+            ),
+            child: ConversationTile(
+              name: conversation.name,
+              lastMessage: conversation.lastMessage?.decryptedContent,
+              timestamp: conversation.lastActivityAt,
+              unreadCount: conversation.unreadCount,
+              isGroup: conversation.isGroup,
+              avatarUrl: conversation.avatarUrl,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ChatScreen(conversation: conversation),
+                  ),
+                );
+              },
+              onLongPress: () => _showConversationOptions(conversation),
+            ),
           );
         },
+      ),
+    );
+  }
+
+  Future<bool> _showDeleteConfirmation(Conversation conversation) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: AppColors.surface,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            border: Border.all(color: AppColors.error, width: 2),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    conversation.isGroup ? Icons.group_remove : Icons.delete,
+                    color: AppColors.error,
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    conversation.isGroup ? 'LEAVE_GROUP' : 'DELETE_CONVERSATION',
+                    style: AppTextStyles.headlineSmall.copyWith(
+                      color: AppColors.error,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Text(
+                conversation.isGroup
+                    ? 'Are you sure you want to leave "${conversation.name}"?'
+                    : 'Are you sure you want to delete this conversation with "${conversation.name}"?',
+                style: AppTextStyles.bodySmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '// All messages will be permanently deleted',
+                style: AppTextStyles.labelSmall.copyWith(
+                  color: AppColors.textMuted,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: Text(
+                      'CANCEL',
+                      style: AppTextStyles.button.copyWith(
+                        color: AppColors.textMuted,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  CyberButton(
+                    text: conversation.isGroup ? 'LEAVE' : 'DELETE',
+                    icon: conversation.isGroup ? Icons.exit_to_app : Icons.delete,
+                    onPressed: () => Navigator.pop(context, true),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    return result ?? false;
+  }
+
+  void _showConversationOptions(Conversation conversation) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: AppColors.neonGreen, width: 2)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  conversation.isGroup ? Icons.group : Icons.person,
+                  color: AppColors.neonGreen,
+                ),
+                const SizedBox(width: 12),
+                Text(conversation.name, style: AppTextStyles.headlineSmall),
+              ],
+            ),
+            const SizedBox(height: 24),
+            
+            // Open Chat
+            ListTile(
+              leading: const Icon(Icons.chat, color: AppColors.neonGreen),
+              title: Text('OPEN_CHAT', style: AppTextStyles.bodySmall),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ChatScreen(conversation: conversation),
+                  ),
+                );
+              },
+            ),
+            
+            const Divider(color: AppColors.borderColor),
+            
+            // Delete/Leave
+            ListTile(
+              leading: Icon(
+                conversation.isGroup ? Icons.exit_to_app : Icons.delete,
+                color: AppColors.error,
+              ),
+              title: Text(
+                conversation.isGroup ? 'LEAVE_GROUP' : 'DELETE_CONVERSATION',
+                style: AppTextStyles.bodySmall.copyWith(color: AppColors.error),
+              ),
+              onTap: () async {
+                final provider = context.read<AppProvider>();
+                Navigator.pop(context);
+                final confirmed = await _showDeleteConfirmation(conversation);
+                if (confirmed) {
+                  await provider.deleteConversation(
+                    conversation.id,
+                    isGroup: conversation.isGroup,
+                  );
+                }
+              },
+            ),
+          ],
+        ),
       ),
     );
   }

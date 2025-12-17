@@ -347,6 +347,7 @@ class ConversationTile extends StatelessWidget {
   final bool isGroup;
   final String? avatarUrl;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   const ConversationTile({
     super.key,
@@ -357,6 +358,7 @@ class ConversationTile extends StatelessWidget {
     this.isGroup = false,
     this.avatarUrl,
     this.onTap,
+    this.onLongPress,
   });
 
   String _formatTime(DateTime time) {
@@ -411,6 +413,7 @@ class ConversationTile extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: const BoxDecoration(

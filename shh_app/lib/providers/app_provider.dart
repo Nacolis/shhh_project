@@ -456,6 +456,7 @@ class AppProvider extends ChangeNotifier {
 
     try {
       final rsaPrivateKeyPem = await _storageService.getRSAPrivateKey();
+      print("rsa private key pem: $rsaPrivateKeyPem");
       final localId = const Uuid().v4();
 
       if (isGroup) {
@@ -495,6 +496,7 @@ class AppProvider extends ChangeNotifier {
     }
 
     sharedSecret ??= Uint8List.fromList(List.generate(32, (i) => i));
+    print("Using shared secret: $sharedSecret");
 
     final encrypted = CryptoService.encryptAESGCM(content, sharedSecret);
 
@@ -503,6 +505,7 @@ class AppProvider extends ChangeNotifier {
       final rsaPrivateKey = CryptoService.rsaPrivateKeyFromPem(
         rsaPrivateKeyPem,
       );
+
       signature = CryptoService.sign(encrypted.ciphertext, rsaPrivateKey);
     }
 
@@ -690,6 +693,7 @@ class AppProvider extends ChangeNotifier {
       if (result.isSuccess && result.data != null) {
         final privateMessageIds = <int>[];
         final groupCopyIds = <int>[];
+        final updatedConversationIds = <String>{};
 
         // Process private messages
         for (final message in result.data!.privateMessages) {
@@ -706,6 +710,9 @@ class AppProvider extends ChangeNotifier {
             message.senderId,
             ConversationType.dm,
           );
+
+          // Track which conversations were updated
+          updatedConversationIds.add(conversationId);
 
           if (message.id != null) {
             privateMessageIds.add(message.id!);
@@ -725,6 +732,9 @@ class AppProvider extends ChangeNotifier {
 
           await _storageService.saveMessage(decryptedMessage, conversationId);
 
+          // Track which conversations were updated
+          updatedConversationIds.add(conversationId);
+
           if (message.id != null) {
             groupCopyIds.add(message.id!);
           }
@@ -739,6 +749,11 @@ class AppProvider extends ChangeNotifier {
         }
 
         await loadConversations();
+
+        // Reload messages for all updated conversations to update the UI in real-time
+        for (final conversationId in updatedConversationIds) {
+          await loadMessages(conversationId);
+        }
       }
     } catch (e) {
       debugPrint('Error fetching messages: $e');
@@ -825,5 +840,199 @@ class AppProvider extends ChangeNotifier {
 
   void _clearError() {
     _error = null;
+  }
+
+
+  /// Delete a group (admin only)
+  Future<bool> deleteGroup(int groupId) async {
+    _setLoading(true);
+    _clearError();
+
+    try {
+      final result = await _apiService.deleteGroup(groupId);
+
+      if (result.isTokenExpired) {
+        _handleTokenExpired();
+        return false;
+      }
+
+      if (result.isSuccess) {
+        _webSocketService.leaveGroup(groupId);
+        await _storageService.deleteConversation(groupId.toString());
+        _messages.remove(groupId.toString());
+        await loadConversations();
+        return true;
+      } else {
+        _setError(result.error ?? 'Failed to delete group');
+        return false;
+      }
+    } catch (e) {
+      _setError('Failed to delete group: $e');
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+  Future<bool> addGroupMember(int groupId, String uniqueUsername) async {
+    _setLoading(true);
+    _clearError();
+
+    try {
+      final result = await _apiService.addGroupMember(groupId, uniqueUsername);
+
+      if (result.isTokenExpired) {
+        _handleTokenExpired();
+        return false;
+      }
+
+      if (result.isSuccess && result.data != null) {
+        final member = result.data!;
+        await _storageService.cacheUserKeys(
+          User(
+            id: member.id,
+            uniqueUsername: member.uniqueUsername,
+            username: member.username,
+            rsaPublicKey: member.rsaPublicKey,
+            dhPublicKey: member.dhPublicKey,
+          ),
+        );
+
+        final conversationId = groupId.toString();
+        final conversations = await _storageService.getConversations();
+        final conversation = conversations.firstWhere(
+          (c) => c.id == conversationId,
+          orElse: () => throw Exception('Conversation not found'),
+        );
+        
+        final updatedMembers = [...(conversation.members ?? []), uniqueUsername].cast<String>();
+        await _storageService.updateConversationMembers(conversationId, updatedMembers.toList());
+        await loadConversations();
+        
+        return true;
+      } else {
+        _setError(result.error ?? 'Failed to add member');
+        return false;
+      }
+    } catch (e) {
+      _setError('Failed to add member: $e');
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  /// Remove a member from a group (admin only)
+  Future<bool> removeGroupMember(int groupId, String uniqueUsername) async {
+    _setLoading(true);
+    _clearError();
+
+    try {
+      final result = await _apiService.removeGroupMember(groupId, uniqueUsername);
+
+      if (result.isTokenExpired) {
+        _handleTokenExpired();
+        return false;
+      }
+
+      if (result.isSuccess) {
+        // Update local conversation members
+        final conversationId = groupId.toString();
+        final conversations = await _storageService.getConversations();
+        final conversation = conversations.firstWhere(
+          (c) => c.id == conversationId,
+          orElse: () => throw Exception('Conversation not found'),
+        );
+        
+        final updatedMembers = (conversation.members ?? [])
+            .where((m) => m != uniqueUsername)
+            .cast<String>()
+            .toList();
+        await _storageService.updateConversationMembers(conversationId, updatedMembers);
+        await loadConversations();
+        
+        return true;
+      } else {
+        _setError(result.error ?? 'Failed to remove member');
+        return false;
+      }
+    } catch (e) {
+      _setError('Failed to remove member: $e');
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  /// Leave a group
+  Future<bool> leaveGroup(int groupId) async {
+    _setLoading(true);
+    _clearError();
+
+    try {
+      final result = await _apiService.leaveGroup(groupId);
+
+      if (result.isTokenExpired) {
+        _handleTokenExpired();
+        return false;
+      }
+
+      if (result.isSuccess) {
+        _webSocketService.leaveGroup(groupId);
+      
+        await _storageService.deleteConversation(groupId.toString());
+        _messages.remove(groupId.toString());
+        await loadConversations();
+        return true;
+      } else {
+        _setError(result.error ?? 'Failed to leave group');
+        return false;
+      }
+    } catch (e) {
+      _setError('Failed to leave group: $e');
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+
+  Future<bool> deleteConversation(String conversationId, {bool isGroup = false}) async {
+    _setLoading(true);
+    _clearError();
+
+    try {
+      if (isGroup) {
+        return await leaveGroup(int.parse(conversationId));
+      }
+
+      await _storageService.deleteConversation(conversationId);
+      _messages.remove(conversationId);
+      await loadConversations();
+      return true;
+    } catch (e) {
+      _setError('Failed to delete conversation: $e');
+      return false;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  Future<bool> isGroupAdmin(int groupId) async {
+    try {
+      final membersResult = await _apiService.getGroupMembers(groupId);
+      if (!membersResult.isSuccess || membersResult.data == null) {
+        return false;
+      }
+
+      final conversations = await _storageService.getConversations();
+      final conversation = conversations.firstWhere(
+        (c) => c.id == groupId.toString(),
+        orElse: () => throw Exception('Not found'),
+      );
+      
+      return conversation.members?.contains(_currentUser?.uniqueUsername) ?? false;
+    } catch (e) {
+      return false;
+    }
   }
 }

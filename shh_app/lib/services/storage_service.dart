@@ -66,6 +66,10 @@ class StorageService {
     return await _secureStorage.read(key: 'shared_secret_$recipientId');
   }
 
+  Future<void> deleteSharedSecret(String recipientId) async {
+    await _secureStorage.delete(key: 'shared_secret_$recipientId');
+  }
+
   
   Future<void> clearSecureStorage() async {
     await _secureStorage.deleteAll();
@@ -340,5 +344,31 @@ class StorageService {
     await db.delete('messages');
     await db.delete('conversations');
     await db.delete('user_keys');
+  }
+
+
+  Future<void> deleteConversation(String conversationId) async {
+    final db = await database;
+    await db.delete(
+      'messages',
+      where: 'conversation_id = ?',
+      whereArgs: [conversationId],
+    );
+    await db.delete(
+      'conversations',
+      where: 'id = ?',
+      whereArgs: [conversationId],
+    );
+    await deleteSharedSecret(conversationId);
+  }
+
+  Future<void> updateConversationMembers(String conversationId, List<String> members) async {
+    final db = await database;
+    await db.update(
+      'conversations',
+      {'members': jsonEncode(members)},
+      where: 'id = ?',
+      whereArgs: [conversationId],
+    );
   }
 }

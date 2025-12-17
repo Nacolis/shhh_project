@@ -18,9 +18,13 @@ class ApiConstants {
   static String get groupMessagesAck => '$baseUrl/messages/group/ack';
   
   static String get groups => '$baseUrl/groups';
+  static String group(int groupId) => '$baseUrl/groups/$groupId';
   static String groupMessages(int groupId) => '$baseUrl/groups/$groupId/messages';
   static String groupMembers(int groupId) => '$baseUrl/groups/$groupId/members';
+  static String groupMember(int groupId, String uniqueUsername) => '$baseUrl/groups/$groupId/members/$uniqueUsername';
+  static String groupLeave(int groupId) => '$baseUrl/groups/$groupId/leave';
   
+  static String conversation(String uniqueUsername) => '$baseUrl/conversations/$uniqueUsername';
 
   static String userKeys(String uniqueUsername) => '$baseUrl/users/$uniqueUsername/keys';
 }

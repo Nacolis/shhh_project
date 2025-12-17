@@ -154,3 +154,69 @@ def get_user_groups(user_id):
     """Get all groups a user is a member of"""
     memberships = GroupMember.query.filter_by(user_id=user_id).all()
     return [m.group for m in memberships]
+
+def is_group_admin(group_id, user_id):
+    member = GroupMember.query.filter_by(group_id=group_id, user_id=user_id).first()
+    return member is not None and member.role == 'admin'
+
+def is_group_member(group_id, user_id):
+    member = GroupMember.query.filter_by(group_id=group_id, user_id=user_id).first()
+    return member is not None
+
+def delete_group(group_id, user_id):
+    if not is_group_admin(group_id, user_id):
+        raise ValueError("Only group admin can delete the group")
+    
+    group = Group.query.get(group_id)
+    if not group:
+        raise ValueError("Group not found")
+    
+    db.session.delete(group)
+    db.session.commit()
+    return True
+
+def add_member_to_group(group_id, user_id, added_by_user_id):
+    if not is_group_admin(group_id, added_by_user_id):
+        raise ValueError("Only group admin can add members")
+    existing = GroupMember.query.filter_by(group_id=group_id, user_id=user_id).first()
+    if existing:
+        raise ValueError("User is already a member of this group")
+    
+    member = GroupMember(group_id=group_id, user_id=user_id, role='member')
+    db.session.add(member)
+    db.session.commit()
+    return member
+
+def remove_member_from_group(group_id, user_id, removed_by_user_id):
+    is_admin = is_group_admin(group_id, removed_by_user_id)
+    is_self = user_id == removed_by_user_id
+    
+    if not is_admin and not is_self:
+        raise ValueError("Only group admin can remove members or you can remove yourself")
+    
+    member = GroupMember.query.filter_by(group_id=group_id, user_id=user_id).first()
+    if not member:
+        raise ValueError("User is not a member of this group")
+    
+    if member.role == 'admin':
+        admin_count = GroupMember.query.filter_by(group_id=group_id, role='admin').count()
+        if admin_count <= 1:
+            raise ValueError("Cannot remove the last admin. Transfer admin role first or delete the group.")
+    
+    db.session.delete(member)
+    db.session.commit()
+    return True
+
+def leave_group(group_id, user_id):
+    return remove_member_from_group(group_id, user_id, user_id)
+
+def delete_private_conversation(user_id, other_user_id):
+    """Delete all private messages between two users"""
+    PrivateMessage.query.filter(
+        or_(
+            (PrivateMessage.sender_id == user_id) & (PrivateMessage.receiver_id == other_user_id),
+            (PrivateMessage.sender_id == other_user_id) & (PrivateMessage.receiver_id == user_id)
+        )
+    ).delete(synchronize_session=False)
+    db.session.commit()
+    return True

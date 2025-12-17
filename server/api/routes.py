@@ -594,3 +594,94 @@ def ack_group_messages():
     
     service.mark_group_messages_as_read(copy_ids, current_user_id)
     return jsonify({"message": "Messages marked as read"}), 200
+
+@bp.route('/groups/<int:group_id>', methods=['DELETE'])
+@jwt_required()
+def delete_group(group_id):
+    current_user_id = int(get_jwt_identity())
+    try:
+        service.delete_group(group_id, current_user_id)
+        return jsonify({"message": "Group deleted successfully"}), 200
+    except ValueError as e:
+        error_msg = str(e)
+        if "admin" in error_msg.lower():
+            return jsonify({"error": error_msg}), 403
+        return jsonify({"error": error_msg}), 404
+
+@bp.route('/groups/<int:group_id>/members', methods=['POST'])
+@jwt_required()
+def add_group_member(group_id):
+   
+    current_user_id = int(get_jwt_identity())
+    data = request.get_json()
+    unique_username = data.get('unique_username')
+    
+    if not unique_username:
+        return jsonify({"error": "unique_username is required"}), 400
+    
+    user = service.get_user_by_username(unique_username)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    
+    try:
+        service.add_member_to_group(group_id, user.id, current_user_id)
+        return jsonify({
+            "message": "Member added successfully",
+            "member": {
+                "id": user.id,
+                "unique_username": user.unique_username,
+                "username": user.username,
+                "rsa_public_key": user.rsa_public_key,
+                "dh_public_key": user.dh_public_key
+            }
+        }), 201
+    except ValueError as e:
+        error_msg = str(e)
+        if "admin" in error_msg.lower():
+            return jsonify({"error": error_msg}), 403
+        return jsonify({"error": error_msg}), 400
+
+@bp.route('/groups/<int:group_id>/members/<unique_username>', methods=['DELETE'])
+@jwt_required()
+def remove_group_member(group_id, unique_username):
+   
+    current_user_id = int(get_jwt_identity())
+    
+    user = service.get_user_by_username(unique_username)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    
+    try:
+        service.remove_member_from_group(group_id, user.id, current_user_id)
+        return jsonify({"message": "Member removed successfully"}), 200
+    except ValueError as e:
+        error_msg = str(e)
+        if "admin" in error_msg.lower():
+            return jsonify({"error": error_msg}), 403
+        return jsonify({"error": error_msg}), 400
+
+@bp.route('/groups/<int:group_id>/leave', methods=['POST'])
+@jwt_required()
+def leave_group(group_id):
+    current_user_id = int(get_jwt_identity())
+    
+    try:
+        service.leave_group(group_id, current_user_id)
+        return jsonify({"message": "Left group successfully"}), 200
+    except ValueError as e:
+        error_msg = str(e)
+        if "not a member" in error_msg.lower():
+            return jsonify({"error": error_msg}), 404
+        return jsonify({"error": error_msg}), 400
+
+@bp.route('/conversations/<unique_username>', methods=['DELETE'])
+@jwt_required()
+def delete_private_conversation(unique_username):
+    current_user_id = int(get_jwt_identity())
+    
+    other_user = service.get_user_by_username(unique_username)
+    if not other_user:
+        return jsonify({"error": "User not found"}), 404
+    
+    service.delete_private_conversation(current_user_id, other_user.id)
+    return jsonify({"message": "Conversation deleted successfully"}), 200

@@ -307,6 +307,131 @@ class ApiService {
       return ApiResult.failure('Network error: $e');
     }
   }
+
+  // ==================== Group Management ====================
+
+  Future<ApiResult<void>> deleteGroup(int groupId) async {
+    try {
+      final response = await http.delete(
+        Uri.parse(ApiConstants.group(groupId)),
+        headers: _headers,
+      );
+
+      if (response.statusCode == 200) {
+        return ApiResult.success(null);
+      } else if (response.statusCode == 401) {
+        return ApiResult.tokenExpired();
+      } else if (response.statusCode == 403) {
+        return ApiResult.failure('Only admin can delete the group');
+      } else if (response.statusCode == 404) {
+        return ApiResult.failure('Group not found');
+      } else {
+        final error = jsonDecode(response.body);
+        return ApiResult.failure(error['error'] ?? 'Failed to delete group');
+      }
+    } catch (e) {
+      return ApiResult.failure('Network error: $e');
+    }
+  }
+
+  Future<ApiResult<GroupMember>> addGroupMember(int groupId, String uniqueUsername) async {
+    try {
+      final response = await http.post(
+        Uri.parse(ApiConstants.groupMembers(groupId)),
+        headers: _headers,
+        body: jsonEncode({'unique_username': uniqueUsername}),
+      );
+
+      if (response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        return ApiResult.success(GroupMember.fromJson(data['member']));
+      } else if (response.statusCode == 401) {
+        return ApiResult.tokenExpired();
+      } else if (response.statusCode == 403) {
+        return ApiResult.failure('Only admin can add members');
+      } else if (response.statusCode == 404) {
+        return ApiResult.failure('User not found');
+      } else {
+        final error = jsonDecode(response.body);
+        return ApiResult.failure(error['error'] ?? 'Failed to add member');
+      }
+    } catch (e) {
+      return ApiResult.failure('Network error: $e');
+    }
+  }
+
+  Future<ApiResult<void>> removeGroupMember(int groupId, String uniqueUsername) async {
+    try {
+      final response = await http.delete(
+        Uri.parse(ApiConstants.groupMember(groupId, uniqueUsername)),
+        headers: _headers,
+      );
+
+      if (response.statusCode == 200) {
+        return ApiResult.success(null);
+      } else if (response.statusCode == 401) {
+        return ApiResult.tokenExpired();
+      } else if (response.statusCode == 403) {
+        return ApiResult.failure('Only admin can remove members');
+      } else if (response.statusCode == 404) {
+        return ApiResult.failure('User not found');
+      } else {
+        final error = jsonDecode(response.body);
+        return ApiResult.failure(error['error'] ?? 'Failed to remove member');
+      }
+    } catch (e) {
+      return ApiResult.failure('Network error: $e');
+    }
+  }
+
+  Future<ApiResult<void>> leaveGroup(int groupId) async {
+    try {
+      final response = await http.post(
+        Uri.parse(ApiConstants.groupLeave(groupId)),
+        headers: _headers,
+      );
+
+      if (response.statusCode == 200) {
+        return ApiResult.success(null);
+      } else if (response.statusCode == 401) {
+        return ApiResult.tokenExpired();
+      } else if (response.statusCode == 400) {
+        final error = jsonDecode(response.body);
+        return ApiResult.failure(error['error'] ?? 'Cannot leave group');
+      } else if (response.statusCode == 404) {
+        return ApiResult.failure('Not a member of this group');
+      } else {
+        final error = jsonDecode(response.body);
+        return ApiResult.failure(error['error'] ?? 'Failed to leave group');
+      }
+    } catch (e) {
+      return ApiResult.failure('Network error: $e');
+    }
+  }
+
+  // ==================== Conversation Management ====================
+
+  Future<ApiResult<void>> deleteConversation(String uniqueUsername) async {
+    try {
+      final response = await http.delete(
+        Uri.parse(ApiConstants.conversation(uniqueUsername)),
+        headers: _headers,
+      );
+
+      if (response.statusCode == 200) {
+        return ApiResult.success(null);
+      } else if (response.statusCode == 401) {
+        return ApiResult.tokenExpired();
+      } else if (response.statusCode == 404) {
+        return ApiResult.failure('User not found');
+      } else {
+        final error = jsonDecode(response.body);
+        return ApiResult.failure(error['error'] ?? 'Failed to delete conversation');
+      }
+    } catch (e) {
+      return ApiResult.failure('Network error: $e');
+    }
+  }
 }
 
 class ApiResult<T> {
