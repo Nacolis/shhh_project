@@ -31,13 +31,7 @@ class User(db.Model):
     qr_codes = relationship('QRCode', back_populates='user', cascade='all, delete-orphan')
 
 
-class DHParameter(db.Model):
-    __tablename__ = 'dh_parameters'
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    prime_p = Column(Text, nullable=False, comment='Grand nombre premier p')
-    generator_g = Column(Text, nullable=False, comment='Générateur g')
-    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+
 
 class Group(db.Model):
     __tablename__ = 'groups'
@@ -143,20 +137,7 @@ class GroupMessageCopy(db.Model):
     recipient = relationship('User')
 
 
-class DHSession(db.Model):
-    __tablename__ = 'dh_sessions'
-    
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user1_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-    user2_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
-    session_key_hash = Column(String(255), comment='Hash de la clé partagée (pour vérification)')
-    established_at = Column(TIMESTAMP, default=datetime.utcnow)
-    last_used = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    __table_args__ = (
-        db.UniqueConstraint('user1_id', 'user2_id', name='unique_session'),
-        Index('idx_last_used', 'last_used'),
-    )
+
 
 
 class MediaFile(db.Model):

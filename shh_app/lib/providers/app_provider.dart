@@ -53,17 +53,17 @@ class AppProvider extends ChangeNotifier {
 
   void _connectWebSocket() {
     if (_authToken == null) return;
-    
+
     _webSocketService.onConnectionChanged = (connected) {
       _isWebSocketConnected = connected;
       notifyListeners();
     };
-    
+
     _webSocketService.onNewPrivateMessage = (data) {
       debugPrint('New private message notification: $data');
       fetchMessages();
     };
-    
+
     _webSocketService.onNewGroupMessage = (data) {
       debugPrint('New group message notification: $data');
       final groupId = data['group_id'];
@@ -71,12 +71,12 @@ class AppProvider extends ChangeNotifier {
         fetchMessages();
       }
     };
-    
+
     _webSocketService.onMessageAvailable = (data) {
       debugPrint('Message available notification: $data');
       fetchMessages();
     };
-    
+
     _webSocketService.connect(_authToken!);
   }
 
@@ -264,21 +264,23 @@ class AppProvider extends ChangeNotifier {
           // Get group members to store locally
           final membersResult = await _apiService.getGroupMembers(group.id);
           List<String> memberUsernames = [];
-          
+
           if (membersResult.isSuccess && membersResult.data != null) {
             memberUsernames = membersResult.data!
                 .map((m) => m.uniqueUsername)
                 .toList();
-            
+
             // Cache member keys for encryption
             for (final member in membersResult.data!) {
-              await _storageService.cacheUserKeys(User(
-                id: member.id,
-                uniqueUsername: member.uniqueUsername,
-                username: member.username,
-                rsaPublicKey: member.rsaPublicKey,
-                dhPublicKey: member.dhPublicKey,
-              ));
+              await _storageService.cacheUserKeys(
+                User(
+                  id: member.id,
+                  uniqueUsername: member.uniqueUsername,
+                  username: member.username,
+                  rsaPublicKey: member.rsaPublicKey,
+                  dhPublicKey: member.dhPublicKey,
+                ),
+              );
             }
           }
 
@@ -289,13 +291,30 @@ class AppProvider extends ChangeNotifier {
             ConversationType.group,
             members: memberUsernames,
           );
-          
+
           // Join WebSocket room for this group
           _webSocketService.joinGroup(group.id);
         }
       }
     } catch (e) {
       debugPrint('Error syncing groups: $e');
+    }
+  }
+
+  Future<User?> getContact(String uniqueUsername) async {
+    try {
+      var cached = await _storageService.getCachedUserKeys(uniqueUsername);
+      if (cached == null) {
+        final result = await _apiService.getUserKeys(uniqueUsername);
+        if (result.isSuccess && result.data != null) {
+          cached = result.data!;
+          await _storageService.cacheUserKeys(cached);
+        }
+      }
+      return cached;
+    } catch (e) {
+      debugPrint('Error getting contact: $e');
+      return null;
     }
   }
 
@@ -438,7 +457,7 @@ class AppProvider extends ChangeNotifier {
     try {
       final rsaPrivateKeyPem = await _storageService.getRSAPrivateKey();
       final localId = const Uuid().v4();
-      
+
       if (isGroup) {
         // For group messages, encrypt for each member individually (pairwise)
         return await _sendGroupMessagePairwise(
@@ -481,7 +500,9 @@ class AppProvider extends ChangeNotifier {
 
     String signature = '';
     if (rsaPrivateKeyPem != null) {
-      final rsaPrivateKey = CryptoService.rsaPrivateKeyFromPem(rsaPrivateKeyPem);
+      final rsaPrivateKey = CryptoService.rsaPrivateKeyFromPem(
+        rsaPrivateKeyPem,
+      );
       signature = CryptoService.sign(encrypted.ciphertext, rsaPrivateKey);
     }
 
@@ -499,14 +520,11 @@ class AppProvider extends ChangeNotifier {
     );
     await _storageService.saveMessage(message, conversationId);
 
-    _messages[conversationId] = [
-      ...(_messages[conversationId] ?? []),
-      message,
-    ];
+    _messages[conversationId] = [...(_messages[conversationId] ?? []), message];
     notifyListeners();
 
     final result = await _apiService.sendMessage(message);
-    
+
     return await _handleSendResult(result, localId, conversationId, message);
   }
 
@@ -517,7 +535,7 @@ class AppProvider extends ChangeNotifier {
     String? rsaPrivateKeyPem,
   ) async {
     final groupId = int.parse(conversationId);
-    
+
     // Fetch group members with their public keys
     final membersResult = await _apiService.getGroupMembers(groupId);
     if (membersResult.isTokenExpired) {
@@ -531,17 +549,19 @@ class AppProvider extends ChangeNotifier {
 
     final members = membersResult.data!;
     final encryptedCopies = <EncryptedMessageCopy>[];
-    
+
     // Encrypt message for each member using their DH public key
     for (final member in members) {
       // Skip self
       if (member.uniqueUsername == _currentUser!.uniqueUsername) continue;
-      
+
       try {
         // Get or compute shared secret with this member
-        var secretBase64 = await _storageService.getSharedSecret(member.uniqueUsername);
+        var secretBase64 = await _storageService.getSharedSecret(
+          member.uniqueUsername,
+        );
         Uint8List sharedSecret;
-        
+
         if (secretBase64 != null) {
           sharedSecret = base64Decode(secretBase64);
         } else if (member.dhPublicKey != null) {
@@ -568,17 +588,21 @@ class AppProvider extends ChangeNotifier {
 
         String signature = '';
         if (rsaPrivateKeyPem != null) {
-          final rsaPrivateKey = CryptoService.rsaPrivateKeyFromPem(rsaPrivateKeyPem);
+          final rsaPrivateKey = CryptoService.rsaPrivateKeyFromPem(
+            rsaPrivateKeyPem,
+          );
           signature = CryptoService.sign(encrypted.ciphertext, rsaPrivateKey);
         }
 
-        encryptedCopies.add(EncryptedMessageCopy(
-          recipientUsername: member.uniqueUsername,
-          ciphertext: encrypted.ciphertext,
-          nonce: encrypted.nonce,
-          authTag: encrypted.authTag,
-          signature: signature,
-        ));
+        encryptedCopies.add(
+          EncryptedMessageCopy(
+            recipientUsername: member.uniqueUsername,
+            ciphertext: encrypted.ciphertext,
+            nonce: encrypted.nonce,
+            authTag: encrypted.authTag,
+            signature: signature,
+          ),
+        );
       } catch (e) {
         debugPrint('Failed to encrypt for member ${member.uniqueUsername}: $e');
       }
@@ -592,7 +616,7 @@ class AppProvider extends ChangeNotifier {
     // Save local copy of the message (with our own encryption for display)
     final mySecret = Uint8List.fromList(List.generate(32, (i) => i));
     final myEncrypted = CryptoService.encryptAESGCM(content, mySecret);
-    
+
     final message = Message(
       localId: localId,
       senderId: _currentUser!.uniqueUsername,
@@ -607,16 +631,13 @@ class AppProvider extends ChangeNotifier {
     );
     await _storageService.saveMessage(message, conversationId);
 
-    _messages[conversationId] = [
-      ...(_messages[conversationId] ?? []),
-      message,
-    ];
+    _messages[conversationId] = [...(_messages[conversationId] ?? []), message];
     notifyListeners();
 
     // Send to server
     final request = SendGroupMessageRequest(encryptedCopies: encryptedCopies);
     final result = await _apiService.sendGroupMessage(groupId, request);
-    
+
     return await _handleSendResult(result, localId, conversationId, message);
   }
 
@@ -631,7 +652,7 @@ class AppProvider extends ChangeNotifier {
       await _storageService.updateMessageStatus(localId, MessageStatus.failed);
       return false;
     }
-    
+
     if (result.isSuccess) {
       await _storageService.updateMessageStatus(localId, MessageStatus.sent);
       final index = _messages[conversationId]!.indexWhere(
@@ -659,7 +680,7 @@ class AppProvider extends ChangeNotifier {
     try {
       // Also sync groups in case user was added to a new group
       await syncGroupsFromServer();
-      
+
       final result = await _apiService.getAllPendingMessages();
       if (result.isTokenExpired) {
         _handleTokenExpired();
@@ -690,12 +711,12 @@ class AppProvider extends ChangeNotifier {
             privateMessageIds.add(message.id!);
           }
         }
-        
+
         // Process group messages
         for (final message in result.data!.groupMessages) {
           final groupId = message.groupId;
           if (groupId == null) continue;
-          
+
           final conversationId = groupId.toString();
           final decryptedContent = await _decryptMessage(message);
           final decryptedMessage = message.copyWith(
@@ -708,7 +729,7 @@ class AppProvider extends ChangeNotifier {
             groupCopyIds.add(message.id!);
           }
         }
-        
+
         // Acknowledge messages
         if (privateMessageIds.isNotEmpty) {
           await _apiService.acknowledgeMessages(privateMessageIds);
@@ -726,14 +747,18 @@ class AppProvider extends ChangeNotifier {
 
   Future<String> _decryptMessage(Message message) async {
     try {
-      var secretBase64 = await _storageService.getSharedSecret(message.senderId);
+      var secretBase64 = await _storageService.getSharedSecret(
+        message.senderId,
+      );
       Uint8List sharedSecret;
 
       if (secretBase64 != null) {
         sharedSecret = base64Decode(secretBase64);
       } else {
         try {
-          var cached = await _storageService.getCachedUserKeys(message.senderId);
+          var cached = await _storageService.getCachedUserKeys(
+            message.senderId,
+          );
 
           if (cached == null) {
             final keysResult = await _apiService.getUserKeys(message.senderId);
@@ -756,7 +781,10 @@ class AppProvider extends ChangeNotifier {
               );
 
               secretBase64 = base64Encode(secret);
-              await _storageService.storeSharedSecret(message.senderId, secretBase64);
+              await _storageService.storeSharedSecret(
+                message.senderId,
+                secretBase64,
+              );
               sharedSecret = secret;
             } else {
               sharedSecret = Uint8List.fromList(List.generate(32, (i) => i));
@@ -784,7 +812,6 @@ class AppProvider extends ChangeNotifier {
       return '[Decryption failed]';
     }
   }
-
 
   void _setLoading(bool value) {
     _isLoading = value;

@@ -168,8 +168,8 @@ def login():
         if not user:
             return jsonify({"error": "Invalid credentials"}), 401
 
-        # Create JWT token (use string subject to satisfy JWT subject type)
-        access_token = create_access_token(identity=str(user.id))
+        # Create JWT token (use string subject to satisfy JWT subject type) 1hour
+        access_token = create_access_token(identity=str(user.id),expires_delta=timedelta(hours=1))
         
         return jsonify({
             "message": "Login successful",

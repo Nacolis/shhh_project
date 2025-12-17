@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:pointycastle/export.dart';
 import 'package:crypto/crypto.dart';
@@ -7,11 +8,18 @@ import 'package:convert/convert.dart';
 // Génération des clés RSA
 AsymmetricKeyPair<RSAPublicKey, RSAPrivateKey> genRsaKeypair(int bits) {
   final keyGen = RSAKeyGenerator()
-    ..init(ParametersWithRandom(
-      RSAKeyGeneratorParameters(BigInt.from(65537), bits, 64),
-      SecureRandom('Fortuna')
-        ..seed(KeyParameter(Uint8List.fromList(List.generate(32, (_) => 0))))
-    ));
+    ..init(
+      ParametersWithRandom(
+        RSAKeyGeneratorParameters(BigInt.from(65537), bits, 64),
+        SecureRandom('Fortuna')..seed(
+          KeyParameter(
+            Uint8List.fromList(
+              List.generate(32, (_) => Random.secure().nextInt(256)),
+            ),
+          ),
+        ),
+      ),
+    );
   final pair = keyGen.generateKeyPair();
   final pub = pair.publicKey as RSAPublicKey;
   final priv = pair.privateKey as RSAPrivateKey;
@@ -22,6 +30,7 @@ AsymmetricKeyPair<RSAPublicKey, RSAPrivateKey> genRsaKeypair(int bits) {
 BigInt rsa(BigInt m, RSAPublicKey k) {
   return m.modPow(k.exponent!, k.modulus!);
 }
+
 BigInt rsaDecrypt(BigInt c, RSAPrivateKey k) {
   return c.modPow(k.exponent!, k.modulus!);
 }
@@ -48,6 +57,3 @@ bool rsaVerify(String m, BigInt sign, RSAPublicKey kPublique) {
   final v = sign.modPow(kPublique.exponent!, kPublique.modulus!);
   return v == hInt;
 }
-
-
-

@@ -32,24 +32,26 @@ class CryptoService {
 
   /// Analyse une clé publique RSA à partir du format PEM
   static RSAPublicKey rsaPublicKeyFromPem(String pem) {
-    final lines = pem.split('\n')
-      .where((line) => !line.startsWith('-----'))
-      .join('');
+    final lines = pem
+        .split('\n')
+        .where((line) => !line.startsWith('-----'))
+        .join('');
     final bytes = base64Decode(lines);
     return _decodeRSAPublicKey(bytes);
   }
 
   /// Analyse une clé privée RSA à partir du format PEM
   static RSAPrivateKey rsaPrivateKeyFromPem(String pem) {
-    final lines = pem.split('\n')
-      .where((line) => !line.startsWith('-----'))
-      .join('');
+    final lines = pem
+        .split('\n')
+        .where((line) => !line.startsWith('-----'))
+        .join('');
     final bytes = base64Decode(lines);
     return _decodeRSAPrivateKey(bytes);
   }
 
-//Diffie Hellman (Échange de clés Diffie-Hellman)
-  
+  //Diffie Hellman (Échange de clés Diffie-Hellman)
+
   // RFC 3526 Groupe 14 (MODP 2048-bit)
   static final BigInt _dhP = BigInt.parse(
     'FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74'
@@ -70,7 +72,7 @@ class CryptoService {
     final privateKey = _generateRandomBigInt(_dhP - BigInt.two);
     // Calcule la clé publique: y = g^x mod p
     final publicKey = _dhG.modPow(privateKey, _dhP);
-    
+
     return DHKeyPair(privateKey: privateKey, publicKey: publicKey);
   }
 
@@ -78,7 +80,10 @@ class CryptoService {
     final bytes = (max.bitLength + 7) ~/ 8;
     BigInt result;
     do {
-      final randomBytes = List<int>.generate(bytes, (_) => _random.nextInt(256));
+      final randomBytes = List<int>.generate(
+        bytes,
+        (_) => _random.nextInt(256),
+      );
       result = _bytesToBigInt(Uint8List.fromList(randomBytes));
     } while (result >= max || result < BigInt.two);
     return result;
@@ -105,10 +110,18 @@ class CryptoService {
   }
 
   /// Calcule le secret partagé en utilisant DH
-  static Uint8List computeSharedSecret(BigInt privateKey, BigInt otherPublicKey) {
+  static Uint8List computeSharedSecret(
+    BigInt privateKey,
+    BigInt otherPublicKey,
+  ) {
+    // Validation de la clé publique (éviter les attaques par petits sous-groupes)
+    if (otherPublicKey <= BigInt.one || otherPublicKey >= _dhP - BigInt.one) {
+      throw Exception('Clé publique Diffie-Hellman invalide (hors limites)');
+    }
+
     // s = (y_other ^ x_self) mod p
     final sharedSecret = otherPublicKey.modPow(privateKey, _dhP);
-    
+
     // Dérive une clé 256-bit du secret partagé en utilisant SHA-256
     final secretBytes = _bigIntToBytes(sharedSecret);
     final hash = crypto.sha256.convert(secretBytes);
@@ -120,16 +133,18 @@ class CryptoService {
   /// Encrypte un message avec AES-GCM
   static EncryptedData encryptAESGCM(String plaintext, Uint8List key) {
     final iv = encrypt.IV.fromSecureRandom(12); // 96-bit nonce for GCM
-    final encrypter = encrypt.Encrypter(encrypt.AES(encrypt.Key(key), mode: encrypt.AESMode.gcm));
-    
+    final encrypter = encrypt.Encrypter(
+      encrypt.AES(encrypt.Key(key), mode: encrypt.AESMode.gcm),
+    );
+
     final encrypted = encrypter.encrypt(plaintext, iv: iv);
-    
+
     // La bibliothèque encrypt ajoute la balise d'authentification 16-byte au texte chiffré
     // Nous devons les séparer pour un stockage/transmission approprié
     final fullBytes = encrypted.bytes;
     final ciphertextBytes = fullBytes.sublist(0, fullBytes.length - 16);
     final authTagBytes = fullBytes.sublist(fullBytes.length - 16);
-    
+
     return EncryptedData(
       ciphertext: base64Encode(ciphertextBytes),
       nonce: iv.base64,
@@ -140,13 +155,15 @@ class CryptoService {
   /// Déchiffre un message avec AES-GCM
   static String decryptAESGCM(EncryptedData data, Uint8List key) {
     final iv = encrypt.IV.fromBase64(data.nonce);
-    final encrypter = encrypt.Encrypter(encrypt.AES(encrypt.Key(key), mode: encrypt.AESMode.gcm));
-    
+    final encrypter = encrypt.Encrypter(
+      encrypt.AES(encrypt.Key(key), mode: encrypt.AESMode.gcm),
+    );
+
     // Reconstruit le texte chiffré combiné + balise d'authentification attendu par la bibliothèque
     final ciphertextBytes = base64Decode(data.ciphertext);
     final authTagBytes = base64Decode(data.authTag);
     final combined = Uint8List.fromList([...ciphertextBytes, ...authTagBytes]);
-    
+
     return encrypter.decrypt(encrypt.Encrypted(combined), iv: iv);
   }
 
@@ -162,7 +179,11 @@ class CryptoService {
   }
 
   /// Vérifie la signature avec la clé publique RSA (implémentation personnalisée)
-  static bool verify(String data, String signatureBase64, RSAPublicKey publicKey) {
+  static bool verify(
+    String data,
+    String signatureBase64,
+    RSAPublicKey publicKey,
+  ) {
     try {
       final sigBytes = base64Decode(signatureBase64);
       final sigBigInt = _bytesToBigInt(Uint8List.fromList(sigBytes));
@@ -177,7 +198,12 @@ class CryptoService {
   static String _chunked(String str, int chunkSize) {
     final chunks = <String>[];
     for (var i = 0; i < str.length; i += chunkSize) {
-      chunks.add(str.substring(i, i + chunkSize > str.length ? str.length : i + chunkSize));
+      chunks.add(
+        str.substring(
+          i,
+          i + chunkSize > str.length ? str.length : i + chunkSize,
+        ),
+      );
     }
     return chunks.join('\n');
   }
@@ -185,7 +211,7 @@ class CryptoService {
   static Uint8List _bigIntToBytes(BigInt number) {
     var hex = number.toRadixString(16);
     if (hex.length % 2 != 0) hex = '0$hex';
-    
+
     final bytes = <int>[];
     for (var i = 0; i < hex.length; i += 2) {
       bytes.add(int.parse(hex.substring(i, i + 2), radix: 16));
@@ -197,7 +223,7 @@ class CryptoService {
   static Uint8List _encodeRSAPublicKey(RSAPublicKey key) {
     final modulus = _bigIntToBytes(key.modulus!);
     final exponent = _bigIntToBytes(key.exponent!);
-    
+
     // Codage simple : concaténation préfixée par la longueur
     final buffer = BytesBuilder();
     buffer.addByte(modulus.length >> 8);
@@ -206,25 +232,25 @@ class CryptoService {
     buffer.addByte(exponent.length >> 8);
     buffer.addByte(exponent.length & 0xFF);
     buffer.add(exponent);
-    
+
     return buffer.toBytes();
   }
 
   static RSAPublicKey _decodeRSAPublicKey(Uint8List bytes) {
     var offset = 0;
-    
+
     final modulusLen = (bytes[offset] << 8) | bytes[offset + 1];
     offset += 2;
     final modulusBytes = bytes.sublist(offset, offset + modulusLen);
     offset += modulusLen;
-    
+
     final exponentLen = (bytes[offset] << 8) | bytes[offset + 1];
     offset += 2;
     final exponentBytes = bytes.sublist(offset, offset + exponentLen);
-    
+
     final modulus = _bytesToBigInt(modulusBytes);
     final exponent = _bytesToBigInt(exponentBytes);
-    
+
     return RSAPublicKey(modulus, exponent);
   }
 
@@ -233,7 +259,7 @@ class CryptoService {
     final exponent = _bigIntToBytes(key.exponent!);
     final p = _bigIntToBytes(key.p!);
     final q = _bigIntToBytes(key.q!);
-    
+
     final buffer = BytesBuilder();
     buffer.addByte(modulus.length >> 8);
     buffer.addByte(modulus.length & 0xFF);
@@ -247,37 +273,37 @@ class CryptoService {
     buffer.addByte(q.length >> 8);
     buffer.addByte(q.length & 0xFF);
     buffer.add(q);
-    
+
     return buffer.toBytes();
   }
 
   static RSAPrivateKey _decodeRSAPrivateKey(Uint8List bytes) {
     var offset = 0;
-    
+
     final modulusLen = (bytes[offset] << 8) | bytes[offset + 1];
     offset += 2;
     final modulusBytes = bytes.sublist(offset, offset + modulusLen);
     offset += modulusLen;
-    
+
     final exponentLen = (bytes[offset] << 8) | bytes[offset + 1];
     offset += 2;
     final exponentBytes = bytes.sublist(offset, offset + exponentLen);
     offset += exponentLen;
-    
+
     final pLen = (bytes[offset] << 8) | bytes[offset + 1];
     offset += 2;
     final pBytes = bytes.sublist(offset, offset + pLen);
     offset += pLen;
-    
+
     final qLen = (bytes[offset] << 8) | bytes[offset + 1];
     offset += 2;
     final qBytes = bytes.sublist(offset, offset + qLen);
-    
+
     final modulus = _bytesToBigInt(modulusBytes);
     final exponent = _bytesToBigInt(exponentBytes);
     final p = _bytesToBigInt(pBytes);
     final q = _bytesToBigInt(qBytes);
-    
+
     return RSAPrivateKey(modulus, exponent, p, q);
   }
 
@@ -287,6 +313,34 @@ class CryptoService {
       result = (result << 8) | BigInt.from(bytes[i]);
     }
     return result;
+  }
+
+  static String generateSafetyNumber(
+    String myIdentityKey,
+    String theirIdentityKey,
+  ) {
+    // Trier les clés pour garantir que l'empreinte est identique pour les deux utilisateurs
+    final keys = [myIdentityKey, theirIdentityKey]..sort();
+
+    // Concaténer les clés
+    final combined = keys.join('');
+
+    // Hacher (SHA-256)
+    final hash = crypto.sha256.convert(utf8.encode(combined));
+
+    // Convertir en un numéro de sécurité lisible (style Signal)
+    // On prend les 10 premiers octets pour générer 5 groupes de 5 chiffres
+    final bytes = hash.bytes.sublist(0, 10);
+    final buffer = StringBuffer();
+
+    // Algorithme simplifié pour générer des groupes de chiffres
+    for (var i = 0; i < 5; i++) {
+      final val = (bytes[i * 2] << 8) | bytes[i * 2 + 1];
+      buffer.write(val.toString().padLeft(5, '0'));
+      if (i < 4) buffer.write(' ');
+    }
+
+    return buffer.toString();
   }
 }
 

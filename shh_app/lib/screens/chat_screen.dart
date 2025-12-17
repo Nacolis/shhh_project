@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'safety_number_screen.dart';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -90,7 +91,10 @@ class _ChatScreenState extends State<ChatScreen>
                               : _buildMessageList(messages, provider),
                         ),
 
-                        MessageInput(onSend: _sendMessage, isLoading: _isSending),
+                        MessageInput(
+                          onSend: _sendMessage,
+                          isLoading: _isSending,
+                        ),
                       ],
                     ),
                   ],
@@ -378,22 +382,90 @@ class _ChatScreenState extends State<ChatScreen>
                   color: AppColors.neonGreen.withValues(alpha: 0.3),
                 ),
               ),
-              child: Row(
+              child: Column(
                 children: [
-                  const Icon(
-                    Icons.verified_user,
-                    color: AppColors.neonGreen,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'END-TO-END ENCRYPTED',
-                      style: AppTextStyles.labelMedium.copyWith(
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.verified_user,
                         color: AppColors.neonGreen,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'END-TO-END ENCRYPTED',
+                          style: AppTextStyles.labelMedium.copyWith(
+                            color: AppColors.neonGreen,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (!widget.conversation.isGroup) ...[
+                    const Divider(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: TextButton.icon(
+                        style: TextButton.styleFrom(
+                          backgroundColor: AppColors.neonGreen.withOpacity(0.1),
+                          padding: const EdgeInsets.all(12),
+                        ),
+                        icon: const Icon(
+                          Icons.fingerprint,
+                          color: AppColors.neonGreen,
+                        ),
+                        label: const Text(
+                          'VERIFY IDENTITY',
+                          style: TextStyle(
+                            color: AppColors.neonGreen,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        onPressed: () async {
+                          Navigator.pop(context); // Close bottom sheet
+                          final provider = context.read<AppProvider>();
+                          if (provider.currentUser == null) return;
+
+                          final contact = await provider.getContact(
+                            widget.conversation.id,
+                          ); // id is username in DM
+
+                          if (contact != null &&
+                              contact.dhPublicKey != null &&
+                              provider.currentUser!.dhPublicKey != null) {
+                            if (mounted) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => SafetyNumberScreen(
+                                    myIdentityKey:
+                                        provider.currentUser!.dhPublicKey! +
+                                        (provider.currentUser!.rsaPublicKey ??
+                                            ''),
+                                    theirIdentityKey:
+                                        contact.dhPublicKey! +
+                                        (contact.rsaPublicKey ?? ''),
+                                    remoteUsername: contact.username,
+                                  ),
+                                ),
+                              );
+                            }
+                          } else {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Unabled to load keys for verification',
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+                        },
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -404,15 +476,13 @@ class _ChatScreenState extends State<ChatScreen>
   }
 
   Widget _buildDefaultAvatarImage() {
-    return Image.asset(
-      'assets/profil.png',
-      fit: BoxFit.cover,
-    );
+    return Image.asset('assets/profil.png', fit: BoxFit.cover);
   }
 
   Widget _buildConversationAvatar() {
-    final borderColor =
-        widget.conversation.isGroup ? AppColors.hotPink : AppColors.neonGreen;
+    final borderColor = widget.conversation.isGroup
+        ? AppColors.hotPink
+        : AppColors.neonGreen;
 
     return Container(
       width: 40,
@@ -422,7 +492,8 @@ class _ChatScreenState extends State<ChatScreen>
         border: Border.all(color: borderColor, width: 2),
       ),
       clipBehavior: Clip.hardEdge,
-      child: widget.conversation.avatarUrl != null &&
+      child:
+          widget.conversation.avatarUrl != null &&
               widget.conversation.avatarUrl!.isNotEmpty
           ? Image.network(
               widget.conversation.avatarUrl!,

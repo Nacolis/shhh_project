@@ -222,7 +222,10 @@ class ApiService {
     }
   }
 
-  Future<ApiResult<void>> sendGroupMessage(int groupId, SendGroupMessageRequest request) async {
+  Future<ApiResult<void>> sendGroupMessage(
+    int groupId,
+    SendGroupMessageRequest request,
+  ) async {
     try {
       final response = await http.post(
         Uri.parse(ApiConstants.groupMessages(groupId)),
