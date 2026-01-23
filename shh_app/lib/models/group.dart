@@ -78,7 +78,7 @@ class EncryptedMessageCopy {
   }
 }
 
-/// Request to send a group message with pairwise encrypted copies
+
 class SendGroupMessageRequest {
   final List<EncryptedMessageCopy> encryptedCopies;
 

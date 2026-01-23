@@ -460,7 +460,6 @@ class AppProvider extends ChangeNotifier {
       final localId = const Uuid().v4();
 
       if (isGroup) {
-        // For group messages, encrypt for each member individually (pairwise)
         return await _sendGroupMessagePairwise(
           conversationId,
           content,
@@ -468,7 +467,6 @@ class AppProvider extends ChangeNotifier {
           rsaPrivateKeyPem,
         );
       } else {
-        // For private messages, use existing logic
         return await _sendPrivateMessage(
           conversationId,
           content,
